@@ -105,7 +105,7 @@ class MainMenuScreen extends StatelessWidget {
           final settings = context.read<SettingsService>();
           context.read<GameState>().initializeGrid(
                 settings.difficulty,
-                EmojiTheme.fruits,
+                EmojiTheme.random(),
               );
           Navigator.of(context).push(
             MaterialPageRoute(

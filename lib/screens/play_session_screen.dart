@@ -15,7 +15,7 @@ import 'victory_screen.dart';
 
 /// 游戏对局页面
 /// 使用 GestureDetector.onPan 管理手势生命周期
-/// 集成放大镜、跨界震动、TTS 驻留播报、自动提示、路径可视化
+/// 集成放大镜、跨界震动、TTS 驻留播报、路径可视化
 class PlaySessionScreen extends StatefulWidget {
   const PlaySessionScreen({super.key});
 
@@ -34,9 +34,6 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
   bool _isDragging = false;
   Timer? _dwellTimer;
   Offset? _magnifierPosition;
-
-  // 自动提示计时器
-  Timer? _autoHintTimer;
 
   // 消除动画计时器
   Timer? _eliminationTimer;
@@ -70,9 +67,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
 
   // 常量
   static const double _panThreshold = 30.0;
-  static const double _magnifierShowThreshold = 10.0;
   static const int _dwellMs = 200;
-  static const int _autoHintSeconds = 15;
 
   @override
   void initState() {
@@ -94,11 +89,10 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
         TtsService.instance.enabled = settings.isTtsEnabled;
         HapticService.instance.enabled = settings.isVibrationEnabled;
         final gs = context.read<GameState>();
-        gs.initializeGrid(settings.difficulty, EmojiTheme.fruits);
+        gs.initializeGrid(settings.difficulty, EmojiTheme.random());
         _displayScore = gs.score;
         _prevScore = gs.score;
         _victoryShown = false;
-        _resetAutoHintTimer();
         _startClockTimer();
       }
     });
@@ -130,7 +124,6 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
   void dispose() {
     context.read<GameState>().removeListener(_onGameStateChange);
     _dwellTimer?.cancel();
-    _autoHintTimer?.cancel();
     _pathClearTimer?.cancel();
     _hintClearTimer?.cancel();
     _scoreAnimTimer?.cancel();
@@ -146,7 +139,6 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
   void _handlePause() {
     TtsService.instance.stop();
     _dwellTimer?.cancel();
-    _autoHintTimer?.cancel();
     _clockTimer?.cancel();
   }
 
@@ -156,23 +148,10 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
     _startCell = null;
     _lastHoveredIndex = null;
     _victoryShown = false;
-    _resetAutoHintTimer();
     _startClockTimer();
   }
 
-  // ---- 自动提示 ----
-
-  void _resetAutoHintTimer() {
-    _autoHintTimer?.cancel();
-    _autoHintTimer = Timer(
-      const Duration(seconds: _autoHintSeconds),
-      () {
-        if (mounted) {
-          _showHint();
-        }
-      },
-    );
-  }
+  // ---- 时钟 ----
 
   void _startClockTimer() {
     _clockTimer?.cancel();
@@ -206,7 +185,6 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
       HapticService.instance.vibrateShuffle();
       TtsService.instance.speak('没有可消除的配对，自动重新排列');
     }
-    _resetAutoHintTimer();
   }
 
   // ---- 格子定位 ----
@@ -256,10 +234,14 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
     _startCell = cell;
     _totalPanDistance = 0;
     _isDragging = true;
+    _magnifierPosition = localOffset;
     _lastHoveredIndex = null;
-    _magnifierPosition = null;
 
     if (cell != null) {
+      final settings = context.read<SettingsService>();
+      if (settings.isVibrationEnabled) {
+        HapticService.instance.vibrateSelect();
+      }
       AudioService.instance.play('select');
     }
   }
@@ -277,13 +259,8 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
 
     _totalPanDistance += details.delta.distance;
 
-    // 放大镜
-    if (_totalPanDistance >= _magnifierShowThreshold) {
-      _magnifierPosition = Offset(
-        localOffset.dx,
-        localOffset.dy,
-      );
-    }
+    // 放大镜实时更新
+    _magnifierPosition = localOffset;
 
     final cell = _getCellAtPosition(localOffset, cellSize, rows, cols, gridOffset);
     if (cell == null) return;
@@ -328,7 +305,52 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
         _startCell!.id != endCell.id) {
       _tryMatchCells(_startCell!, endCell);
     } else if (_startCell != null) {
-      context.read<GameState>().selectCell(_startCell!.row, _startCell!.col);
+      final gs = context.read<GameState>();
+      final settings = context.read<SettingsService>();
+      final result = gs.selectCell(_startCell!.row, _startCell!.col);
+
+      // 处理点击匹配结果
+      if (result == true) {
+        // 匹配成功
+        if (settings.isVibrationEnabled) {
+          HapticService.instance.vibrateSuccess();
+        }
+        AudioService.instance.play('eliminate');
+        if (settings.isTtsEnabled) {
+          TtsService.instance.speak('配对成功');
+        }
+
+        // 显示路径
+        final path = gs.currentPath;
+        if (path != null) {
+          setState(() {
+            _matchPath = path;
+          });
+          _pathClearTimer?.cancel();
+          _pathClearTimer = Timer(
+            const Duration(milliseconds: 600),
+            () {
+              if (mounted) {
+                setState(() {
+                  _matchPath = null;
+                });
+              }
+            },
+          );
+        }
+
+        // 检查是否通关
+        if (gs.isVictory && !_victoryShown) {
+          _victoryShown = true;
+          _showVictory(gs.score);
+        }
+      } else if (result == false) {
+        // 匹配失败
+        if (settings.isVibrationEnabled) {
+          HapticService.instance.vibrateFail();
+        }
+        AudioService.instance.play('fail');
+      }
     }
 
     _startCell = null;
@@ -400,8 +422,6 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
         _victoryShown = true;
         _showVictory(gs.score);
       }
-
-      _resetAutoHintTimer();
     } else {
       if (settings.isVibrationEnabled) {
         HapticService.instance.vibrateFail();
@@ -422,9 +442,8 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
         final settings = context.read<SettingsService>();
         final gs = context.read<GameState>();
         gs.clearVictory();
-        gs.initializeGrid(settings.difficulty, EmojiTheme.fruits);
+        gs.initializeGrid(settings.difficulty, EmojiTheme.random());
         _victoryShown = false;
-        _resetAutoHintTimer();
       } else {
         // 返回主页
         Navigator.of(context).popUntil((route) => route.isFirst);

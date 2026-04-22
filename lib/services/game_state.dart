@@ -213,19 +213,27 @@ class GameState extends ChangeNotifier {
   }
 
   /// 选中格子
-  void selectCell(int row, int col) {
-    if (!isPlaying) return;
+  /// 返回 true=匹配成功，false=匹配失败，null=仅选中/取消选中
+  bool? selectCell(int row, int col) {
+    if (!isPlaying) return null;
     final cell = grid[row][col];
-    if (cell == null || cell.isEliminated) return;
+    if (cell == null || cell.isEliminated) return null;
 
     if (selectedCell?.id == cell.id) {
       selectedCell = null;
       notifyListeners();
+      return null; // 取消选中
     } else if (selectedCell != null) {
-      tryMatch(selectedCell!, cell);
+      final matched = tryMatch(selectedCell!, cell);
+      if (!matched) {
+        selectedCell = null;
+        notifyListeners();
+      }
+      return matched; // 匹配结果
     } else {
       selectedCell = cell;
       notifyListeners();
+      return null; // 首次选中
     }
   }
 

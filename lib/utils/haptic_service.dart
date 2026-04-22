@@ -25,6 +25,11 @@ class HapticService {
     }
   }
 
+  /// 选中格子震动 20ms
+  Future<void> vibrateSelect() async {
+    await vibrate(20);
+  }
+
   /// 跨界滑动震动 15ms
   Future<void> vibrateCrossBoundary() async {
     await vibrate(15);
