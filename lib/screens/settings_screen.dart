@@ -514,7 +514,7 @@ class _UpdateTileState extends State<_UpdateTile> {
     });
     try {
       final path = await UpdateService.instance
-          .downloadApk(release, onProgress: (p) {
+          .downloadUpdate(release, onProgress: (p) {
         if (mounted) setState(() => _progress = p);
       });
       if (!mounted) return;

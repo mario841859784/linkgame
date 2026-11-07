@@ -6,11 +6,13 @@ import '../models/cell.dart';
 import '../models/emoji_themes.dart';
 import '../services/content_service.dart';
 import '../services/game_state.dart';
+import '../services/path_finder.dart';
 import '../services/settings_service.dart';
 import '../utils/app_lifecycle.dart';
 import '../utils/audio_service.dart';
 import '../utils/haptic_service.dart';
 import '../utils/tts_service.dart';
+import '../widgets/live_link_painter.dart';
 import '../widgets/magnifier_widget.dart';
 import 'victory_screen.dart';
 
@@ -37,6 +39,9 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
   // 放大镜状态：(手指位置, 当前悬浮格子的 emoji)；null = 隐藏
   // 用 ValueNotifier 驱动独立图层，避免 pan 事件触发整页重建
   final ValueNotifier<(Offset, String)?> _magnifier = ValueNotifier(null);
+
+  // 实时连接线（拖动中）：(像素路径点, 是否可消除)；null = 隐藏
+  final ValueNotifier<(List<Offset>, bool)?> _liveLink = ValueNotifier(null);
 
   // 消除动画计时器
   Timer? _eliminationTimer;
@@ -136,6 +141,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
     _lifecycleObserver.dispose();
     TtsService.instance.dispose();
     _magnifier.dispose();
+    _liveLink.dispose();
     super.dispose();
   }
 
@@ -227,17 +233,26 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
     return gs.grid[pos.$1][pos.$2];
   }
 
+  /// 格子（含棋盘外延 -1/cols 的虚拟行）中心点在 Stack 坐标系下的像素位置
+  Offset _cellCenter(double row, double col, double tileSize, Offset gridOffset) {
+    return Offset(
+      gridOffset.dx + 8 + col * tileSize + tileSize / 2,
+      gridOffset.dy + 8 + row * tileSize + tileSize / 2,
+    );
+  }
+
   // ---- 手势回调 ----
 
-  void _onPanDown(DragDownDetails details, double cellSize, int rows, int cols, Offset gridOffset) {
+  void _onPanDown(DragDownDetails details, double tileSize, int rows, int cols, Offset gridOffset) {
     final renderBox = _stackKey.currentContext?.findRenderObject() as RenderBox?;
     if (renderBox == null) return;
     final localOffset = renderBox.globalToLocal(details.globalPosition);
-    final cell = _getCellAtPosition(localOffset, cellSize, rows, cols, gridOffset);
+    final cell = _getCellAtPosition(localOffset, tileSize, rows, cols, gridOffset);
 
     _startCell = cell;
     _totalPanDistance = 0;
     _magnifier.value = (localOffset, (cell != null && !cell.isEliminated) ? cell.emoji : '');
+    _liveLink.value = null;
     _lastHoveredIndex = null;
 
     // 只有按在未消除的格子上才给"选中"提示音与震动（已消除格子是 no-op）
@@ -252,7 +267,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
 
   void _onPanUpdate(
     DragUpdateDetails details,
-    double cellSize,
+    double tileSize,
     int rows,
     int cols,
     Offset gridOffset,
@@ -263,11 +278,37 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
 
     _totalPanDistance += details.delta.distance;
 
-    final cell = _getCellAtPosition(localOffset, cellSize, rows, cols, gridOffset);
+    final gs = context.read<GameState>();
+    final cell = _getCellAtPosition(localOffset, tileSize, rows, cols, gridOffset);
 
     // 放大镜实时更新（ValueNotifier 直推，不触发整页重建）
     _magnifier.value =
         (localOffset, (cell != null && !cell.isEliminated) ? cell.emoji : '');
+
+    // 实时连接线：起点 → 当前悬浮格（可消除=金色实线 / 不能消除=红色虚线）
+    if (cell != null &&
+        !cell.isEliminated &&
+        _startCell != null &&
+        _startCell!.id != cell.id) {
+      final route = PathFinder.findPath(_startCell!, cell, gs.grid);
+      if (route != null) {
+        _liveLink.value = (
+          [
+            for (final p in route)
+              _cellCenter(p.dx, p.dy, tileSize, gridOffset),
+          ],
+          true,
+        );
+      } else {
+        _liveLink.value = ([
+          _cellCenter(
+              _startCell!.row.toDouble(), _startCell!.col.toDouble(), tileSize, gridOffset),
+          _cellCenter(cell.row.toDouble(), cell.col.toDouble(), tileSize, gridOffset),
+        ], false);
+      }
+    } else {
+      _liveLink.value = null;
+    }
 
     if (cell == null) return;
 
@@ -297,13 +338,14 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
     _currentHoveredIndex = currentIndex;
   }
 
-  void _onPanEnd(double cellSize, int rows, int cols) {
+  void _onPanEnd(double tileSize, int rows, int cols) {
     _dwellTimer?.cancel();
     _dwellTimer = null;
     _magnifier.value = null;
+    _liveLink.value = null;
 
     final endCell = _currentHoveredIndex != null
-        ? _getCellByIndex(_currentHoveredIndex!, cellSize, rows, cols)
+        ? _getCellByIndex(_currentHoveredIndex!, tileSize, rows, cols)
         : _startCell;
 
     if (_totalPanDistance >= _panThreshold &&
@@ -467,7 +509,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
 
   // ---- 路径绘制 ----
 
-  Widget _buildPathOverlay(double cellSize, ColorScheme cs, Offset gridOffset) {
+  Widget _buildPathOverlay(double tileSize, ColorScheme cs, Offset gridOffset) {
     if (_matchPath == null || _matchPath!.length < 2) {
       return const SizedBox.shrink();
     }
@@ -475,7 +517,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
     return CustomPaint(
       painter: _PathPainter(
         path: _matchPath!,
-        cellSize: cellSize,
+        tileSize: tileSize,
         pathColor: cs.tertiary,
         gridOffset: gridOffset,
       ),
@@ -650,12 +692,15 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
           final cellSize = (constraints.maxWidth / cols)
               .clamp(40.0, availableHeight / rows);
 
-          // 计算 GridView 在 Stack 中的偏移
+          // 计算 GridView 在 Stack 中的偏移与真实格子宽度（GridView 有 8px 内边距）
           final gridRenderBox = _gridKey.currentContext?.findRenderObject() as RenderBox?;
           final stackRenderBox = _stackKey.currentContext?.findRenderObject() as RenderBox?;
           final gridOffset = (gridRenderBox != null && stackRenderBox != null)
               ? gridRenderBox.localToGlobal(Offset.zero) - stackRenderBox.localToGlobal(Offset.zero)
               : Offset.zero;
+          final tileSize = (gridRenderBox != null && gridRenderBox.size.width > 16)
+              ? (gridRenderBox.size.width - 16) / cols
+              : cellSize.toDouble();
 
           return Column(
             children: [
@@ -663,13 +708,14 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
               Expanded(
                 child: GestureDetector(
                   onPanDown: (details) =>
-                      _onPanDown(details, cellSize, rows, cols, gridOffset),
+                      _onPanDown(details, tileSize, rows, cols, gridOffset),
                   onPanUpdate: (details) =>
-                      _onPanUpdate(details, cellSize, rows, cols, gridOffset),
-                  onPanEnd: (_) => _onPanEnd(cellSize, rows, cols),
+                      _onPanUpdate(details, tileSize, rows, cols, gridOffset),
+                  onPanEnd: (_) => _onPanEnd(tileSize, rows, cols),
                   behavior: HitTestBehavior.translucent,
                   child: Stack(
                     key: _stackKey,
+                    clipBehavior: Clip.none,
                     children: [
                       Center(
                         child: GridView.builder(
@@ -723,7 +769,28 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
                       ),
                       // 路径连线可视化
                       if (_matchPath != null)
-                        _buildPathOverlay(cellSize, cs, gridOffset),
+                        _buildPathOverlay(tileSize, cs, gridOffset),
+                      // 实时连接线（拖动中）：金实线=可消除，红虚线=不能消除
+                      ValueListenableBuilder<(List<Offset>, bool)?>(
+                        valueListenable: _liveLink,
+                        builder: (context, state, _) {
+                          if (state == null) {
+                            return const SizedBox.shrink();
+                          }
+                          return Positioned.fill(
+                            child: RepaintBoundary(
+                              child: CustomPaint(
+                                painter: LiveLinkPainter(
+                                  points: state.$1,
+                                  matchable: state.$2,
+                                  validColor: cs.secondary,
+                                  invalidColor: cs.error,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                       // 放大镜 — 独立重绘图层：
                       // ValueListenableBuilder 只重建本节点，RepaintBoundary 隔离重绘，
                       // Transform.translate 在绘制期偏移（无重布局），拖动全程 60fps 跟手
@@ -734,15 +801,21 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
                             return const SizedBox.shrink();
                           }
                           final d = cellSize * 1.5;
+                          // 顶行翻转：常规在手指上方 80dp，越界时翻到手指下方，
+                          // 避免被标题栏区域裁掉；水平方向收进 Stack 边界内
+                          final aboveTop = state.$1.dy - 80 - d / 2;
+                          final centerY =
+                              aboveTop < 0 ? state.$1.dy + 80 : state.$1.dy - 80;
+                          final lo = d / 2 + 4;
+                          final hi = constraints.maxWidth - d / 2 - 4;
+                          final centerX =
+                              state.$1.dx.clamp(lo, hi < lo ? lo : hi);
                           return Positioned(
                             left: 0,
                             top: 0,
                             child: RepaintBoundary(
                               child: Transform.translate(
-                                offset: Offset(
-                                  state.$1.dx - d / 2,
-                                  state.$1.dy - 80 - d / 2,
-                                ),
+                                offset: Offset(centerX - d / 2, centerY - d / 2),
                                 child: MagnifierWidget(
                                   emoji: state.$2,
                                   cellSize: cellSize,
@@ -821,13 +894,13 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
 /// 路径连线绘制器 — 加粗圆角线条 + 发光效果
 class _PathPainter extends CustomPainter {
   final List<Offset> path;
-  final double cellSize;
+  final double tileSize;
   final Color pathColor;
   final Offset gridOffset;
 
   _PathPainter({
     required this.path,
-    required this.cellSize,
+    required this.tileSize,
     required this.pathColor,
     required this.gridOffset,
   });
@@ -856,9 +929,9 @@ class _PathPainter extends CustomPainter {
     final pathObj = Path();
     for (int i = 0; i < path.length; i++) {
       final point = path[i];
-      // 将 (row, col) 转换为像素坐标
-      final dx = point.dy * cellSize + cellSize / 2 + gridOffset.dx;
-      final dy = point.dx * cellSize + cellSize / 2 + gridOffset.dy;
+      // 将 (row, col) 转换为像素坐标（含 GridView 的 8px 内边距）
+      final dx = gridOffset.dx + 8 + point.dy * tileSize + tileSize / 2;
+      final dy = gridOffset.dy + 8 + point.dx * tileSize + tileSize / 2;
       if (i == 0) {
         pathObj.moveTo(dx, dy);
       } else {
@@ -876,8 +949,8 @@ class _PathPainter extends CustomPainter {
     final start = path.first;
     canvas.drawCircle(
       Offset(
-        start.dy * cellSize + cellSize / 2 + gridOffset.dx,
-        start.dx * cellSize + cellSize / 2 + gridOffset.dy,
+        gridOffset.dx + 8 + start.dy * tileSize + tileSize / 2,
+        gridOffset.dy + 8 + start.dx * tileSize + tileSize / 2,
       ),
       8,
       startPaint,
@@ -887,8 +960,8 @@ class _PathPainter extends CustomPainter {
     final end = path.last;
     canvas.drawCircle(
       Offset(
-        end.dy * cellSize + cellSize / 2 + gridOffset.dx,
-        end.dx * cellSize + cellSize / 2 + gridOffset.dy,
+        gridOffset.dx + 8 + end.dy * tileSize + tileSize / 2,
+        gridOffset.dy + 8 + end.dx * tileSize + tileSize / 2,
       ),
       8,
       startPaint,
@@ -897,6 +970,6 @@ class _PathPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _PathPainter oldDelegate) {
-    return oldDelegate.path != path || oldDelegate.cellSize != cellSize || oldDelegate.gridOffset != gridOffset;
+    return oldDelegate.path != path || oldDelegate.tileSize != tileSize || oldDelegate.gridOffset != gridOffset;
   }
 }

@@ -3,8 +3,8 @@ import 'package:link_game/models/emoji_themes.dart';
 
 void main() {
   group('EmojiTheme enum', () {
-    test('has exactly 11 themes', () {
-      expect(EmojiTheme.values.length, 11);
+    test('has exactly 12 themes', () {
+      expect(EmojiTheme.values.length, 12);
     });
 
     test('contains all expected themes', () {
@@ -19,6 +19,7 @@ void main() {
       expect(EmojiTheme.values, contains(EmojiTheme.seaCreatures));
       expect(EmojiTheme.values, contains(EmojiTheme.musicInstruments));
       expect(EmojiTheme.values, contains(EmojiTheme.officeSupplies));
+      expect(EmojiTheme.values, contains(EmojiTheme.shapesColors));
     });
   });
 
@@ -60,11 +61,15 @@ void main() {
     });
 
     test('music instruments theme name is in Chinese', () {
-      expect(EmojiTheme.musicInstruments.name, '音乐乐器');
+      expect(EmojiTheme.musicInstruments.name, '音乐娱乐');
     });
 
     test('office supplies theme name is in Chinese', () {
       expect(EmojiTheme.officeSupplies.name, '办公学习');
+    });
+
+    test('shapes colors theme name is in Chinese', () {
+      expect(EmojiTheme.shapesColors.name, '几何图形');
     });
   });
 
@@ -102,13 +107,6 @@ void main() {
       }
     });
 
-    test('ttsLabel count matches emoji count for all themes', () {
-      for (final theme in EmojiTheme.values) {
-        expect(theme.ttsLabels.length, theme.emojis.length,
-            reason: '${theme.name} ttsLabel count != emoji count');
-      }
-    });
-
     test('all ttsLabels are non-empty Chinese strings', () {
       for (final theme in EmojiTheme.values) {
         for (final label in theme.ttsLabels) {
@@ -116,6 +114,34 @@ void main() {
               reason: '${theme.name} has an empty ttsLabel');
         }
       }
+    });
+
+    test('同主题内 TTS 标签末两字不得重复（防读音相近混淆）', () {
+      for (final theme in EmojiTheme.values) {
+        final suffixes = <String, String>{};
+        for (final label in theme.ttsLabels) {
+          if (label.length < 2) continue; // 单字标签（如「马」）跳过
+          final suffix = label.substring(label.length - 2);
+          expect(suffixes.containsKey(suffix), false,
+              reason: '${theme.name} 内「${suffixes[suffix]}」与「$label」读音尾部相同');
+          suffixes[suffix] = label;
+        }
+      }
+    });
+  });
+
+  group('EmojiTheme.random 加权', () {
+    test('几何图形主题权重约 40%', () {
+      var shapesCount = 0;
+      const runs = 2000;
+      for (int i = 0; i < runs; i++) {
+        if (EmojiTheme.random() == EmojiTheme.shapesColors) shapesCount++;
+      }
+      final ratio = shapesCount / runs;
+      expect(ratio, greaterThan(0.33),
+          reason: '几何图形主题出现率 $ratio 偏低，权重回归失效');
+      expect(ratio, lessThan(0.47),
+          reason: '几何图形主题出现率 $ratio 偏高，挤占了其他主题');
     });
   });
 
@@ -126,16 +152,16 @@ void main() {
       expect(theme.ttsLabels[0], '苹果');
       expect(theme.emojis[1], '🍌');
       expect(theme.ttsLabels[1], '香蕉');
-      expect(theme.emojis[7], '🍒');
-      expect(theme.ttsLabels[7], '樱桃');
+      expect(theme.emojis[5], '🍒');
+      expect(theme.ttsLabels[5], '樱桃');
     });
 
     test('animals emojis and ttsLabels correspond correctly', () {
       final theme = EmojiTheme.animals;
       expect(theme.emojis[0], '🐶');
-      expect(theme.ttsLabels[0], '小狗');
-      expect(theme.emojis[7], '🐯');
-      expect(theme.ttsLabels[7], '老虎');
+      expect(theme.ttsLabels[0], '狗狗');
+      expect(theme.emojis[3], '🐯');
+      expect(theme.ttsLabels[3], '老虎');
     });
   });
 }

@@ -38,17 +38,17 @@ class ContentService {
   static const double defaultTtsRate = 0.4;
 
   // ---- 远端内容源（按顺序回退）----
-  // jsDelivr 走仓库文件（hotfix/ 目录需随发布提交）；
-  // cdn.jsdelivr.net 主域名在国内常被墙，用 fastly/gcore 备用端点
+  // release 资产镜像（即时新鲜）优先；jsDelivr 走仓库文件（可达性好但有
+  // 最多 12h 的边缘缓存延迟，仅兜底；cdn 主域名在国内常被墙，用备用端点）
 
   static const String _repo = 'mario841859784/linkgame';
   static const List<String> _contentBaseUrls = [
-    'https://fastly.jsdelivr.net/gh/$_repo@main/hotfix',
-    'https://gcore.jsdelivr.net/gh/$_repo@main/hotfix',
     'https://github.com/$_repo/releases/download/hotfix',
     'https://ghfast.top/https://github.com/$_repo/releases/download/hotfix',
     'https://ghproxy.net/https://github.com/$_repo/releases/download/hotfix',
     'https://gh-proxy.com/https://github.com/$_repo/releases/download/hotfix',
+    'https://fastly.jsdelivr.net/gh/$_repo@main/hotfix',
+    'https://gcore.jsdelivr.net/gh/$_repo@main/hotfix',
   ];
 
   static const String _prefsKeyContent = 'hotfix_content';
