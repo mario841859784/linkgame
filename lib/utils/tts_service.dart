@@ -19,6 +19,10 @@ class TtsService {
   FlutterTts? _flutterTts;
   DateTime? _lastSpeakTime;
 
+  /// 当前语速（speak 前统一套用：部分机型引擎对全局 setSpeechRate
+  /// 的持久化不可靠，每次发声前重设最稳）
+  double _rate = 0.4;
+
   /// 引擎就绪信号：Android TTS 引擎异步初始化，就绪前的 speak 会静默失败
   Completer<void>? _ready;
 
@@ -46,6 +50,7 @@ class TtsService {
     try {
       final tts = FlutterTts();
       _flutterTts = tts;
+      _rate = rate;
       await tts.setLanguage('zh-CN');
       await tts.setSpeechRate(rate);
       await tts.setPitch(1.0);
@@ -62,6 +67,9 @@ class TtsService {
         }
         await Future<void>.delayed(const Duration(milliseconds: 100));
       }
+      // 就绪后再套用一次语速：onInit 回调里插件会重设语言，
+      // 个别引擎可能连带重置语速等参数
+      await tts.setSpeechRate(_rate);
     } catch (e) {
       // TTS 不可用时静默降级，不崩溃
       _flutterTts = null;
@@ -72,6 +80,7 @@ class TtsService {
 
   /// 更新语速（0.2~0.7，注意 Android 上映射 0.5 = 引擎正常语速）
   Future<void> setRate(double rate) async {
+    _rate = rate;
     final tts = _flutterTts;
     if (tts == null) return;
     try {
@@ -106,6 +115,8 @@ class TtsService {
     // 就绪后的首次调用个别引擎仍可能失败，重试一次
     for (int attempt = 0; attempt < 2; attempt++) {
       try {
+        // 每次发声前重设语速：部分机型引擎不保证全局设置的持久化
+        await _flutterTts!.setSpeechRate(_rate);
         final result = await _flutterTts!.speak(text);
         if (result == 1) return;
       } catch (_) {
