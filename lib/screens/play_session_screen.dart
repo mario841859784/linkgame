@@ -240,7 +240,8 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
     _magnifier.value = (localOffset, (cell != null && !cell.isEliminated) ? cell.emoji : '');
     _lastHoveredIndex = null;
 
-    if (cell != null) {
+    // 只有按在未消除的格子上才给"选中"提示音与震动（已消除格子是 no-op）
+    if (cell != null && !cell.isEliminated) {
       final settings = context.read<SettingsService>();
       if (settings.isVibrationEnabled) {
         HapticService.instance.vibrateSelect();
@@ -356,9 +357,12 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
           HapticService.instance.vibrateFail();
         }
         AudioService.instance.play('fail');
-      } else if (gs.selectedCell != null && settings.isTtsEnabled) {
+      } else if (gs.selectedCell != null &&
+          gs.selectedCell!.id == _startCell!.id &&
+          settings.isTtsEnabled) {
         // 首次选中：快速点按时驻留播报（200ms）来不及触发就被 onPanEnd 取消，
-        // 这里显式播报被选中格子的名称；慢速长按时驻留已播报过，会被节流跳过
+        // 这里显式播报被选中格子的名称；慢速长按时驻留已播报过，会被节流跳过。
+        // 必须校验"点的就是被选中的那块"：点已消除格子是 no-op，不能重复播报原选中块
         TtsService.instance.speak(gs.selectedCell!.ttsLabel);
       }
     }
