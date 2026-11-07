@@ -3,6 +3,24 @@ import 'package:link_game/models/cell.dart';
 import 'package:link_game/models/emoji_themes.dart';
 import 'package:link_game/services/game_state.dart';
 
+/// 确定性构造可解棋盘：前 pairs 行各放一对相邻同 emoji，其余格子全部消除
+/// （随机布局不保证存在可连通对，相关测试一律用它避免概率性失败）
+void _seedSolvablePairs(GameState state, int pairs) {
+  for (int r = 0; r < state.grid.length; r++) {
+    for (int c = 0; c < state.grid[r].length; c++) {
+      if (r < pairs && c <= 1) {
+        if (c == 1) {
+          final a = state.grid[r][0]!;
+          state.grid[r][1] =
+              state.grid[r][1]!.copyWith(emoji: a.emoji, ttsLabel: a.ttsLabel);
+        }
+      } else {
+        state.grid[r][c] = state.grid[r][c]!.copyWith(isEliminated: true);
+      }
+    }
+  }
+}
+
 void main() {
   group('DifficultyConfig', () {
     test('easy is 4 cols × 7 rows (竖屏优先)', () {
@@ -350,25 +368,24 @@ void main() {
     test('returns a valid hint pair', () {
       final state = GameState();
       state.initializeGrid('简单', EmojiTheme.fruits);
+      _seedSolvablePairs(state, 2);
 
       final hint = state.findHint();
 
-      // With a fresh grid, there should be at least one valid pair
+      // 确定性棋盘必有一对
       expect(hint, isNotNull);
 
-      if (hint != null) {
-        final (r1, c1, r2, c2) = hint;
-        expect(r1, greaterThanOrEqualTo(0));
-        expect(c1, greaterThanOrEqualTo(0));
-        expect(r2, greaterThanOrEqualTo(0));
-        expect(c2, greaterThanOrEqualTo(0));
+      final (r1, c1, r2, c2) = hint!;
+      expect(r1, greaterThanOrEqualTo(0));
+      expect(c1, greaterThanOrEqualTo(0));
+      expect(r2, greaterThanOrEqualTo(0));
+      expect(c2, greaterThanOrEqualTo(0));
 
-        final cell1 = state.grid[r1][c1]!;
-        final cell2 = state.grid[r2][c2]!;
-        expect(cell1.emoji, cell2.emoji);
-        expect(cell1.isEliminated, false);
-        expect(cell2.isEliminated, false);
-      }
+      final cell1 = state.grid[r1][c1]!;
+      final cell2 = state.grid[r2][c2]!;
+      expect(cell1.emoji, cell2.emoji);
+      expect(cell1.isEliminated, false);
+      expect(cell2.isEliminated, false);
     });
 
     test('returns null when no pairs exist (deadlock)', () {
@@ -403,6 +420,7 @@ void main() {
     test('returns hint and deducts 5 points (score clamped at 0)', () {
       final state = GameState();
       state.initializeGrid('简单', EmojiTheme.fruits);
+      _seedSolvablePairs(state, 2);
 
       final hint = state.useHint();
 
@@ -442,6 +460,17 @@ void main() {
     test('returns false when valid pairs exist', () {
       final state = GameState();
       state.initializeGrid('简单', EmojiTheme.fruits);
+
+      // 确定性构造一对相邻同 emoji（随机布局不保证存在可连通对）
+      final a = state.grid[0][0]!;
+      state.grid[0][1] =
+          state.grid[0][1]!.copyWith(emoji: a.emoji, ttsLabel: a.ttsLabel);
+      for (int r = 0; r < state.grid.length; r++) {
+        for (int c = 0; c < state.grid[r].length; c++) {
+          if ((r == 0 && c == 0) || (r == 0 && c == 1)) continue;
+          state.grid[r][c] = state.grid[r][c]!.copyWith(isEliminated: true);
+        }
+      }
 
       final deadlock = state.checkDeadlock();
 
@@ -753,6 +782,7 @@ void main() {
     test('hint deducts 5 points', () {
       final state = GameState();
       state.initializeGrid('简单', EmojiTheme.fruits);
+      _seedSolvablePairs(state, 2); // 保证有解，useHint 才会扣分
       state.score = 20;
 
       state.useHint();
@@ -763,6 +793,7 @@ void main() {
     test('hint score clamped at 0', () {
       final state = GameState();
       state.initializeGrid('简单', EmojiTheme.fruits);
+      _seedSolvablePairs(state, 2);
       state.score = 3;
 
       state.useHint();
@@ -800,6 +831,9 @@ void main() {
       expect(state.score, 0);
       expect(state.grid.length, 7); // 简单：7 行 × 4 列
 
+      // 确定性构造两对相邻同 emoji（随机布局不保证可解）
+      _seedSolvablePairs(state, 2);
+
       final hint = state.findHint();
       expect(hint, isNotNull);
       final (r1, c1, r2, c2) = hint!;
@@ -812,7 +846,7 @@ void main() {
       expect(state.selectedCell, isNull);
       expect(state.score, 10);
 
-      // Hint
+      // Hint — 第二对仍然可解
       final nextHint = state.findHint();
       expect(nextHint, isNotNull);
 

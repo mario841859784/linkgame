@@ -491,12 +491,16 @@ class _UpdateTileState extends State<_UpdateTile> {
       _busy = true;
       _status = null;
     });
-    final release = await UpdateService.instance.checkLatest();
+    final outcome = await UpdateService.instance.checkLatest();
     if (!mounted) return;
     setState(() {
       _busy = false;
-      _release = release;
-      _status = release == null ? '已是最新版本' : null;
+      _release = outcome.release;
+      _status = !outcome.succeeded
+          ? '检查失败，请检查网络后重试'
+          : outcome.release == null
+              ? '已是最新版本'
+              : null;
     });
   }
 

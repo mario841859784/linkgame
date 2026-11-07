@@ -47,6 +47,31 @@ gh release view "${TAG}" -R "${REPO}" >/dev/null 2>&1 \
   || gh release create "${TAG}" -R "${REPO}" --title "连连看 ${VER}" --notes "${NOTES}"
 gh release upload "${TAG}" -R "${REPO}" "${OUT}" --clobber
 
+# 5. 生成 latest.json 并同步到 tag hotfix 的 release
+#    （应用内自更新在国内网络走该镜像通道检查版本，与内容热更同源）
+NAME_PART="${VER%%+*}"
+CODE_PART="${VER##*+}"
+LATEST_JSON="${ROOT}/build/app/outputs/flutter-apk/latest.json"
+python3 - "${NAME_PART}" "${CODE_PART}" "${LATEST_JSON}" <<'PY'
+import json, sys
+name, code, out = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+meta = {
+    "versionName": name,
+    "versionCode": code,
+    "apkAsset": f"linkgame-{name}+{code}.apk",
+    "tag": f"v{name}",
+}
+with open(out, "w") as f:
+    json.dump(meta, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+PY
+if gh release view hotfix -R "${REPO}" >/dev/null 2>&1; then
+  gh release upload hotfix -R "${REPO}" "${LATEST_JSON}" --clobber
+  echo "   latest.json 已同步到 tag hotfix"
+else
+  echo "⚠️ tag hotfix release 不存在，跳过 latest.json 同步（先跑 publish-hotfix.sh）" >&2
+fi
+
 echo "✅ ${VER} 已发布"
 echo "   release: https://github.com/${REPO}/releases/tag/${TAG}"
 echo "   别忘了提交 pubspec.yaml 的版本变更"

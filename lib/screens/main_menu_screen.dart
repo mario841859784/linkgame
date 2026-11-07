@@ -185,9 +185,9 @@ class _UpdateBannerState extends State<_UpdateBanner> {
   @override
   void initState() {
     super.initState();
-    UpdateService.instance.checkOncePerRun().then((release) {
-      if (mounted && release != null) {
-        setState(() => _release = release);
+    UpdateService.instance.checkOncePerRun().then((outcome) {
+      if (mounted && outcome.succeeded && outcome.release != null) {
+        setState(() => _release = outcome.release);
       }
     });
   }
