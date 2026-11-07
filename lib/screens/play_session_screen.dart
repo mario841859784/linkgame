@@ -87,13 +87,11 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
     );
     _lifecycleObserver.init();
 
-    TtsService.instance.init();
-
     // 从设置读取难度
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         final settings = context.read<SettingsService>();
-        // 同步服务状态
+        // 同步服务状态（TTS 引擎在 main 启动时已初始化，这里只同步开关与语速）
         TtsService.instance.enabled = settings.isTtsEnabled;
         TtsService.instance.setRate(settings.ttsRate);
         HapticService.instance.enabled = settings.isVibrationEnabled;
@@ -139,7 +137,6 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
     _eliminationTimer?.cancel();
     _clockTimer?.cancel();
     _lifecycleObserver.dispose();
-    TtsService.instance.dispose();
     _magnifier.dispose();
     _liveLink.dispose();
     super.dispose();

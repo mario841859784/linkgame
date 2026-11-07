@@ -296,6 +296,7 @@ class _TtsSwitch extends StatelessWidget {
       value: settings.isTtsEnabled,
       onChanged: (value) {
         settings.isTtsEnabled = value;
+        TtsService.instance.enabled = value;
       },
       contentPadding: const EdgeInsets.symmetric(
         horizontal: 16,

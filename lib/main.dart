@@ -6,6 +6,7 @@ import 'services/content_service.dart';
 import 'services/game_state.dart';
 import 'services/settings_service.dart';
 import 'screens/main_menu_screen.dart';
+import 'utils/tts_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,6 +17,10 @@ void main() async {
   // 预加载设置
   final settings = SettingsService();
   await settings.loadSettings();
+
+  // TTS 为应用级服务：启动即初始化并应用用户保存的语速
+  // （引擎就绪是异步的，speak 内部有就绪门控；对局页不再反复 init/dispose）
+  unawaited(TtsService.instance.init(rate: settings.ttsRate));
 
   runApp(
     MultiProvider(
