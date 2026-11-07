@@ -58,11 +58,20 @@ class UpdateService {
   static const String _apiLatestUrl =
       'https://api.github.com/repos/$_repo/releases/latest';
 
-  /// latest.json 与 APK 的镜像前缀（空字符串 = GitHub 直连，按顺序回退）
+  /// APK 下载镜像前缀（空字符串 = GitHub 直连，按顺序回退）
+  /// 注意：这些公共镜像存活率会波动，失效时从此列表移除并补充新镜像即可
   static const List<String> _downloadMirrors = [
     '',
+    'https://ghfast.top/',
     'https://ghproxy.net/',
     'https://gh-proxy.com/',
+    'https://github.moeyy.xyz/',
+  ];
+
+  /// latest.json 的检查源（jsDelivr 仓库文件，国内可达；cdn 主域名常被墙用备用端点）
+  static const List<String> _latestJsonUrls = [
+    'https://fastly.jsdelivr.net/gh/$_repo@main/hotfix/latest.json',
+    'https://gcore.jsdelivr.net/gh/$_repo@main/hotfix/latest.json',
   ];
 
   static const Duration _apiTimeout = Duration(seconds: 4);
@@ -161,15 +170,16 @@ class UpdateService {
     return null;
   }
 
-  /// 通过镜像多源拉取 latest.json
+  /// 多源拉取 latest.json（jsDelivr 仓库文件优先，release 资产镜像回退）
   Future<Map<String, dynamic>?> _fetchLatestJsonViaMirrors() async {
-    for (final mirror in _downloadMirrors) {
+    final urls = <String>[
+      ..._latestJsonUrls,
+      for (final mirror in _downloadMirrors)
+        '${mirror}https://github.com/$_repo/releases/download/hotfix/latest.json',
+    ];
+    for (final url in urls) {
       try {
-        final resp = await http.get(
-          Uri.parse(
-            '${mirror}https://github.com/$_repo/releases/download/hotfix/latest.json',
-          ),
-        ).timeout(_mirrorTimeout);
+        final resp = await http.get(Uri.parse(url)).timeout(_mirrorTimeout);
         if (resp.statusCode != 200) continue;
         final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
         if (decoded is Map<String, dynamic>) return decoded;

@@ -35,5 +35,14 @@ gh release view hotfix -R "$REPO" >/dev/null 2>&1 \
 gh release upload hotfix -R "$REPO" \
   "$HOTFIX_DIR/hotfix-manifest.json" "$HOTFIX_DIR/hotfix-content.json" --clobber
 
+# 4. 提交仓库文件并刷新 jsDelivr 缓存（App 检查源首位走 jsDelivr）
+if ! git diff --quiet HEAD -- "$HOTFIX_DIR" 2>/dev/null; then
+  git add "$HOTFIX_DIR"
+  git commit -m "chore: 内容热更 r${REV}"
+  git push
+fi
+curl -s --max-time 10 "https://purge.jsdelivr.net/gh/${REPO}@main/hotfix/hotfix-manifest.json" >/dev/null || true
+curl -s --max-time 10 "https://purge.jsdelivr.net/gh/${REPO}@main/hotfix/hotfix-content.json" >/dev/null || true
+
 echo "✅ 内容热更 r${REV} 已发布"
 echo "   manifest: https://github.com/${REPO}/releases/download/hotfix/hotfix-manifest.json"

@@ -47,11 +47,11 @@ gh release view "${TAG}" -R "${REPO}" >/dev/null 2>&1 \
   || gh release create "${TAG}" -R "${REPO}" --title "连连看 ${VER}" --notes "${NOTES}"
 gh release upload "${TAG}" -R "${REPO}" "${OUT}" --clobber
 
-# 5. 生成 latest.json 并同步到 tag hotfix 的 release
-#    （应用内自更新在国内网络走该镜像通道检查版本，与内容热更同源）
+# 5. 生成 latest.json（写进仓库 hotfix/ 目录，jsDelivr 检查源从这里取）
+#    并同步到 tag hotfix 的 release 资产
 NAME_PART="${VER%%+*}"
 CODE_PART="${VER##*+}"
-LATEST_JSON="${ROOT}/build/app/outputs/flutter-apk/latest.json"
+LATEST_JSON="${ROOT}/hotfix/latest.json"
 python3 - "${NAME_PART}" "${CODE_PART}" "${LATEST_JSON}" <<'PY'
 import json, sys
 name, code, out = sys.argv[1], int(sys.argv[2]), sys.argv[3]
@@ -72,6 +72,11 @@ else
   echo "⚠️ tag hotfix release 不存在，跳过 latest.json 同步（先跑 publish-hotfix.sh）" >&2
 fi
 
+# 6. 提交版本变更与 latest.json，刷新 jsDelivr 缓存
+git add pubspec.yaml hotfix/latest.json
+git commit -m "chore: release v${NAME_PART}+${CODE_PART}"
+git push
+curl -s --max-time 10 "https://purge.jsdelivr.net/gh/${REPO}@main/hotfix/latest.json" >/dev/null || true
+
 echo "✅ ${VER} 已发布"
 echo "   release: https://github.com/${REPO}/releases/tag/${TAG}"
-echo "   别忘了提交 pubspec.yaml 的版本变更"
