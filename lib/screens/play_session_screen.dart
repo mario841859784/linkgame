@@ -356,6 +356,10 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
           HapticService.instance.vibrateFail();
         }
         AudioService.instance.play('fail');
+      } else if (gs.selectedCell != null && settings.isTtsEnabled) {
+        // 首次选中：快速点按时驻留播报（200ms）来不及触发就被 onPanEnd 取消，
+        // 这里显式播报被选中格子的名称；慢速长按时驻留已播报过，会被节流跳过
+        TtsService.instance.speak(gs.selectedCell!.ttsLabel);
       }
     }
 
