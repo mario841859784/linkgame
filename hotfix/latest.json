@@ -5,9 +5,27 @@
   "tag": "v1.2.1",
   "patches": [
     {
+      "fromCode": 6,
+      "fromSha256": "fdcc17bbd6aa6b2cf8c05ad1dc396bd02ead1682ff3d49696df542fa9a7afe2f",
+      "asset": "linkgame-1.2.1+9-from-1.1.4+6.patch",
+      "size": 1475418,
+      "sha256": "314607ec16b3bb827dc6495f48295fa470423f0c0fad96d612a5b4acfe3061e7",
+      "outSize": 18047397,
+      "outSha256": "708f829276dc1f56c0fa8cc1d1cfe323aa97d0c2ec0f8d720c29ad633c098a9c"
+    },
+    {
+      "fromCode": 7,
+      "fromSha256": "3732ff955802b0608ecc7be2563304516682f90019badd6c8850cedbca0e4b69",
+      "asset": "linkgame-1.2.1+9-from-1.1.5+7.patch",
+      "size": 1476140,
+      "sha256": "02dec3784797fda82db586a5d40ae543b9dc77d1d8822ceca91645da29d4b2f0",
+      "outSize": 18047397,
+      "outSha256": "708f829276dc1f56c0fa8cc1d1cfe323aa97d0c2ec0f8d720c29ad633c098a9c"
+    },
+    {
       "fromCode": 8,
       "fromSha256": "96435f43df6ff89b73025b4c4302a8ac1376ed6197e07eed1fb8bf6a332f5b1e",
-      "asset": "linkgame-1.2.1+9-from-1.2.1+8.patch",
+      "asset": "linkgame-1.2.1+9-from-1.2.0+8.patch",
       "size": 100331,
       "sha256": "ff0f9baac0e21ef336813d58c0363e5b0b313b3faa7a8c2b6c66b8003637ff69",
       "outSize": 18047397,
