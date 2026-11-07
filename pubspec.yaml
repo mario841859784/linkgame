@@ -1,7 +1,7 @@
 name: link_game
 description: 连连看消除游戏 - 适老化与无障碍设计
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.1.0+2
 
 environment:
   sdk: '>=3.5.0 <4.0.0'
@@ -16,6 +16,9 @@ dependencies:
   vibration: ^2.0.1
   flutter_tts: ^4.0.2
   http: ^1.5.0
+  path_provider: ^2.1.0
+  package_info_plus: ^8.0.0
+  open_filex: ^4.5.0
 
 dev_dependencies:
   flutter_test:

@@ -44,3 +44,10 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 *.apk
+
+# 签名密钥（绝不能提交到仓库）
+key.properties
+android/key.properties
+android/key.jks
+*.jks
+*.keystore

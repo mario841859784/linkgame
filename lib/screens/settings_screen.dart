@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/settings_service.dart';
+import '../services/update_service.dart';
 import '../utils/tts_service.dart';
 
 /// 设置页面 — 适老化大字号、卡片分组、高对比度
@@ -92,6 +93,22 @@ class SettingsScreen extends StatelessWidget {
                   _VibrationSwitch(cs: cs, ts: ts),
                 ],
               ),
+            ),
+
+            const SizedBox(height: 32),
+
+            // 版本与更新
+            _SectionHeader(
+              icon: Icons.system_update_alt_rounded,
+              title: '版本与更新',
+              subtitle: '有新版本时可以直接在这里升级',
+              cs: cs,
+              ts: ts,
+            ),
+            const SizedBox(height: 12),
+            Card(
+              clipBehavior: Clip.antiAlias,
+              child: _UpdateTile(cs: cs, ts: ts),
             ),
 
             const SizedBox(height: 32),
@@ -427,6 +444,151 @@ class _VibrationSwitch extends StatelessWidget {
         ),
       ),
       activeThumbColor: cs.secondary,
+    );
+  }
+}
+
+/// 版本与更新卡片 — 检查 / 下载 / 安装三态
+class _UpdateTile extends StatefulWidget {
+  final ColorScheme cs;
+  final TextTheme ts;
+
+  const _UpdateTile({required this.cs, required this.ts});
+
+  @override
+  State<_UpdateTile> createState() => _UpdateTileState();
+}
+
+class _UpdateTileState extends State<_UpdateTile> {
+  bool _busy = false;
+  RemoteRelease? _release;
+  double _progress = 0;
+  String? _apkPath;
+  String? _status;
+  String _currentVersion = '';
+
+  @override
+  void initState() {
+    super.initState();
+    UpdateService.instance.currentVersionName().then((v) {
+      if (mounted) setState(() => _currentVersion = v);
+    });
+  }
+
+  Future<void> _onTap() async {
+    // 已下载完成 → 安装
+    if (_apkPath != null) {
+      await UpdateService.instance.installApk(_apkPath!);
+      return;
+    }
+    // 已发现新版本 → 下载
+    if (_release != null) {
+      await _download();
+      return;
+    }
+    // 否则检查
+    setState(() {
+      _busy = true;
+      _status = null;
+    });
+    final release = await UpdateService.instance.checkLatest();
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _release = release;
+      _status = release == null ? '已是最新版本' : null;
+    });
+  }
+
+  Future<void> _download() async {
+    final release = _release;
+    if (release == null) return;
+    setState(() {
+      _busy = true;
+      _progress = 0;
+      _status = null;
+    });
+    try {
+      final path = await UpdateService.instance
+          .downloadApk(release, onProgress: (p) {
+        if (mounted) setState(() => _progress = p);
+      });
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _apkPath = path;
+      });
+      await UpdateService.instance.installApk(path);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _status = '下载失败，请稍后重试';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = widget.cs;
+    final ts = widget.ts;
+
+    String title;
+    String subtitle;
+    if (_apkPath != null) {
+      title = '安装新版本';
+      subtitle = '下载完成，点击安装（可能需要在系统设置允许安装）';
+    } else if (_release != null) {
+      title = _busy ? '正在下载 ${(_progress * 100).round()}%' : '升级到新版本 ${_release!.versionName}';
+      subtitle = _busy ? '下载中，请稍候' : '点击立即下载升级';
+    } else {
+      title = '检查更新';
+      subtitle = '当前版本 $_currentVersion${_status == null ? '' : ' · $_status'}';
+    }
+
+    final enabled = !_busy;
+
+    return Column(
+      children: [
+        ListTile(
+          title: Text(title, style: ts.titleMedium?.copyWith(fontSize: 22)),
+          subtitle: Text(
+            subtitle,
+            style: ts.bodyMedium?.copyWith(
+              color: cs.onSurfaceVariant,
+              fontSize: 18,
+            ),
+          ),
+          enabled: enabled,
+          onTap: _onTap,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          leading: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: _apkPath != null || _release != null
+                  ? cs.primaryContainer
+                  : cs.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              _apkPath != null
+                  ? Icons.install_mobile_rounded
+                  : _release != null
+                      ? Icons.download_rounded
+                      : Icons.update_rounded,
+              size: 28,
+              color: _apkPath != null || _release != null
+                  ? cs.onPrimaryContainer
+                  : cs.onSurfaceVariant,
+            ),
+          ),
+        ),
+        if (_busy && _release != null)
+          LinearProgressIndicator(
+            value: _progress > 0 ? _progress : null,
+            minHeight: 4,
+          ),
+      ],
     );
   }
 }
