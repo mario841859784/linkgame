@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/settings_service.dart';
+import '../utils/tts_service.dart';
 
 /// 设置页面 — 适老化大字号、卡片分组、高对比度
 /// "Warm Clarity" 设计语言
@@ -85,6 +86,8 @@ class SettingsScreen extends StatelessWidget {
               child: Column(
                 children: [
                   _TtsSwitch(cs: cs, ts: ts),
+                  const Divider(height: 1, indent: 16, endIndent: 16),
+                  _TtsRateSlider(cs: cs, ts: ts),
                   const Divider(height: 1, indent: 16, endIndent: 16),
                   _VibrationSwitch(cs: cs, ts: ts),
                 ],
@@ -296,6 +299,84 @@ class _TtsSwitch extends StatelessWidget {
         ),
       ),
       activeThumbColor: cs.tertiary,
+    );
+  }
+}
+
+/// 语速描述（Android 映射：flutter 0.5 = 引擎正常语速，默认 0.4 略慢）
+String _ttsRateLabel(double rate) {
+  if (rate < 0.35) return '很慢';
+  if (rate < 0.45) return '较慢';
+  if (rate < 0.55) return '正常';
+  return '较快';
+}
+
+/// TTS 语速滑杆
+class _TtsRateSlider extends StatelessWidget {
+  final ColorScheme cs;
+  final TextTheme ts;
+
+  const _TtsRateSlider({required this.cs, required this.ts});
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = context.watch<SettingsService>();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: cs.tertiaryContainer,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.speed_rounded,
+                  size: 28,
+                  color: cs.onTertiaryContainer,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  '语速',
+                  style: ts.titleMedium?.copyWith(fontSize: 22),
+                ),
+              ),
+              Text(
+                _ttsRateLabel(settings.ttsRate),
+                style: ts.bodyMedium?.copyWith(
+                  color: cs.onSurfaceVariant,
+                  fontSize: 18,
+                ),
+              ),
+            ],
+          ),
+          Slider(
+            value: settings.ttsRate,
+            min: 0.2,
+            max: 0.7,
+            divisions: 10,
+            label: _ttsRateLabel(settings.ttsRate),
+            onChanged: (value) {
+              settings.ttsRate = value;
+              TtsService.instance.setRate(value);
+            },
+          ),
+          Text(
+            '朗读快慢，向左更慢更清楚',
+            style: ts.bodyMedium?.copyWith(
+              color: cs.onSurfaceVariant,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
     );
   }
 }

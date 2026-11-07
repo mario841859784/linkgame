@@ -3,8 +3,8 @@ import 'package:link_game/models/emoji_themes.dart';
 
 void main() {
   group('EmojiTheme enum', () {
-    test('has exactly 6 themes', () {
-      expect(EmojiTheme.values.length, 6);
+    test('has exactly 11 themes', () {
+      expect(EmojiTheme.values.length, 11);
     });
 
     test('contains all expected themes', () {
@@ -14,6 +14,11 @@ void main() {
       expect(EmojiTheme.values, contains(EmojiTheme.food));
       expect(EmojiTheme.values, contains(EmojiTheme.vehicles));
       expect(EmojiTheme.values, contains(EmojiTheme.sports));
+      expect(EmojiTheme.values, contains(EmojiTheme.dailyItems));
+      expect(EmojiTheme.values, contains(EmojiTheme.weatherNature));
+      expect(EmojiTheme.values, contains(EmojiTheme.seaCreatures));
+      expect(EmojiTheme.values, contains(EmojiTheme.musicInstruments));
+      expect(EmojiTheme.values, contains(EmojiTheme.officeSupplies));
     });
   });
 
@@ -41,31 +46,34 @@ void main() {
     test('sport theme name is in Chinese', () {
       expect(EmojiTheme.sports.name, '运动');
     });
+
+    test('daily items theme name is in Chinese', () {
+      expect(EmojiTheme.dailyItems.name, '日常用品');
+    });
+
+    test('weather nature theme name is in Chinese', () {
+      expect(EmojiTheme.weatherNature.name, '天气自然');
+    });
+
+    test('sea creatures theme name is in Chinese', () {
+      expect(EmojiTheme.seaCreatures.name, '海洋生物');
+    });
+
+    test('music instruments theme name is in Chinese', () {
+      expect(EmojiTheme.musicInstruments.name, '音乐乐器');
+    });
+
+    test('office supplies theme name is in Chinese', () {
+      expect(EmojiTheme.officeSupplies.name, '办公学习');
+    });
   });
 
   group('Emojis per theme', () {
-    test('fruits theme has 8 emojis', () {
-      expect(EmojiTheme.fruits.emojis.length, 8);
-    });
-
-    test('animals theme has 8 emojis', () {
-      expect(EmojiTheme.animals.emojis.length, 8);
-    });
-
-    test('flowers theme has 8 emojis', () {
-      expect(EmojiTheme.flowers.emojis.length, 8);
-    });
-
-    test('food theme has 8 emojis', () {
-      expect(EmojiTheme.food.emojis.length, 8);
-    });
-
-    test('vehicles theme has 8 emojis', () {
-      expect(EmojiTheme.vehicles.emojis.length, 8);
-    });
-
-    test('sports theme has 8 emojis', () {
-      expect(EmojiTheme.sports.emojis.length, 8);
+    test('every theme has 16 emojis', () {
+      for (final theme in EmojiTheme.values) {
+        expect(theme.emojis.length, 16,
+            reason: '${theme.name} emoji count != 16');
+      }
     });
 
     test('all emojis are non-empty strings', () {
@@ -87,28 +95,11 @@ void main() {
   });
 
   group('TTS Labels per theme', () {
-    test('fruits theme has 8 ttsLabels', () {
-      expect(EmojiTheme.fruits.ttsLabels.length, 8);
-    });
-
-    test('animals theme has 8 ttsLabels', () {
-      expect(EmojiTheme.animals.ttsLabels.length, 8);
-    });
-
-    test('flowers theme has 8 ttsLabels', () {
-      expect(EmojiTheme.flowers.ttsLabels.length, 8);
-    });
-
-    test('food theme has 8 ttsLabels', () {
-      expect(EmojiTheme.food.ttsLabels.length, 8);
-    });
-
-    test('vehicles theme has 8 ttsLabels', () {
-      expect(EmojiTheme.vehicles.ttsLabels.length, 8);
-    });
-
-    test('sports theme has 8 ttsLabels', () {
-      expect(EmojiTheme.sports.ttsLabels.length, 8);
+    test('every theme has 16 ttsLabels', () {
+      for (final theme in EmojiTheme.values) {
+        expect(theme.ttsLabels.length, 16,
+            reason: '${theme.name} ttsLabel count != 16');
+      }
     });
 
     test('ttsLabel count matches emoji count for all themes', () {

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../models/cell.dart';
 import '../models/emoji_themes.dart';
+import '../services/content_service.dart';
 import '../services/game_state.dart';
 import '../services/settings_service.dart';
 import '../utils/app_lifecycle.dart';
@@ -31,9 +32,11 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
   Cell? _startCell;
   int? _currentHoveredIndex;
   int? _lastHoveredIndex;
-  bool _isDragging = false;
   Timer? _dwellTimer;
-  Offset? _magnifierPosition;
+
+  // 放大镜状态：(手指位置, 当前悬浮格子的 emoji)；null = 隐藏
+  // 用 ValueNotifier 驱动独立图层，避免 pan 事件触发整页重建
+  final ValueNotifier<(Offset, String)?> _magnifier = ValueNotifier(null);
 
   // 消除动画计时器
   Timer? _eliminationTimer;
@@ -87,6 +90,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
         final settings = context.read<SettingsService>();
         // 同步服务状态
         TtsService.instance.enabled = settings.isTtsEnabled;
+        TtsService.instance.setRate(settings.ttsRate);
         HapticService.instance.enabled = settings.isVibrationEnabled;
         final gs = context.read<GameState>();
         gs.initializeGrid(settings.difficulty, EmojiTheme.random());
@@ -131,6 +135,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
     _clockTimer?.cancel();
     _lifecycleObserver.dispose();
     TtsService.instance.dispose();
+    _magnifier.dispose();
     super.dispose();
   }
 
@@ -143,8 +148,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
   }
 
   void _handleResume() {
-    _isDragging = false;
-    _magnifierPosition = null;
+    _magnifier.value = null;
     _startCell = null;
     _lastHoveredIndex = null;
     _victoryShown = false;
@@ -177,13 +181,13 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
           });
         }
       });
-      TtsService.instance.speak('提示：找到相同的图案');
+      TtsService.instance.speak(ContentService.instance.hintMessage);
       AudioService.instance.play('hint');
     } else {
       // 无解，自动洗牌
       gs.shuffleRemaining();
       HapticService.instance.vibrateShuffle();
-      TtsService.instance.speak('没有可消除的配对，自动重新排列');
+      TtsService.instance.speak(ContentService.instance.noPairMessage);
     }
   }
 
@@ -233,8 +237,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
 
     _startCell = cell;
     _totalPanDistance = 0;
-    _isDragging = true;
-    _magnifierPosition = localOffset;
+    _magnifier.value = (localOffset, (cell != null && !cell.isEliminated) ? cell.emoji : '');
     _lastHoveredIndex = null;
 
     if (cell != null) {
@@ -259,10 +262,12 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
 
     _totalPanDistance += details.delta.distance;
 
-    // 放大镜实时更新
-    _magnifierPosition = localOffset;
-
     final cell = _getCellAtPosition(localOffset, cellSize, rows, cols, gridOffset);
+
+    // 放大镜实时更新（ValueNotifier 直推，不触发整页重建）
+    _magnifier.value =
+        (localOffset, (cell != null && !cell.isEliminated) ? cell.emoji : '');
+
     if (cell == null) return;
 
     final currentIndex = _cellIndex(cell.row, cell.col, cols);
@@ -275,14 +280,16 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
       }
     }
 
-    // TTS 驻留播报
-    _dwellTimer?.cancel();
-    if (settings.isTtsEnabled) {
-      _dwellTimer = Timer(Duration(milliseconds: _dwellMs), () {
-        if (mounted) {
-          TtsService.instance.speak(cell.ttsLabel);
-        }
-      });
+    // TTS 驻留播报：仅跨入新格子时重新武装计时器，长按同格不重复播报
+    if (currentIndex != _lastHoveredIndex) {
+      _dwellTimer?.cancel();
+      if (settings.isTtsEnabled && !cell.isEliminated) {
+        _dwellTimer = Timer(Duration(milliseconds: _dwellMs), () {
+          if (mounted) {
+            TtsService.instance.speak(cell.ttsLabel);
+          }
+        });
+      }
     }
 
     _lastHoveredIndex = currentIndex;
@@ -292,8 +299,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
   void _onPanEnd(double cellSize, int rows, int cols) {
     _dwellTimer?.cancel();
     _dwellTimer = null;
-    _magnifierPosition = null;
-    _isDragging = false;
+    _magnifier.value = null;
 
     final endCell = _currentHoveredIndex != null
         ? _getCellByIndex(_currentHoveredIndex!, cellSize, rows, cols)
@@ -317,7 +323,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
         }
         AudioService.instance.play('eliminate');
         if (settings.isTtsEnabled) {
-          TtsService.instance.speak('配对成功');
+          TtsService.instance.speak(TtsService.randomPraise());
         }
 
         // 显示路径
@@ -395,7 +401,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
       }
       AudioService.instance.play('eliminate');
       if (settings.isTtsEnabled) {
-        TtsService.instance.speak('配对成功');
+        TtsService.instance.speak(TtsService.randomPraise());
       }
 
       // 显示路径
@@ -710,22 +716,34 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
                       // 路径连线可视化
                       if (_matchPath != null)
                         _buildPathOverlay(cellSize, cs, gridOffset),
-                      // 放大镜
-                      if (_isDragging &&
-                          _magnifierPosition != null &&
-                          _currentHoveredIndex != null)
-                        MagnifierWidget(
-                          emoji: _getCellByIndex(
-                                  _currentHoveredIndex!,
-                                  cellSize,
-                                  rows,
-                                  cols,
-                                )
-                                ?.emoji ??
-                              '',
-                          position: _magnifierPosition!,
-                          cellSize: cellSize,
-                        ),
+                      // 放大镜 — 独立重绘图层：
+                      // ValueListenableBuilder 只重建本节点，RepaintBoundary 隔离重绘，
+                      // Transform.translate 在绘制期偏移（无重布局），拖动全程 60fps 跟手
+                      ValueListenableBuilder<(Offset, String)?>(
+                        valueListenable: _magnifier,
+                        builder: (context, state, _) {
+                          if (state == null || state.$2.isEmpty) {
+                            return const SizedBox.shrink();
+                          }
+                          final d = cellSize * 1.5;
+                          return Positioned(
+                            left: 0,
+                            top: 0,
+                            child: RepaintBoundary(
+                              child: Transform.translate(
+                                offset: Offset(
+                                  state.$1.dx - d / 2,
+                                  state.$1.dy - 80 - d / 2,
+                                ),
+                                child: MagnifierWidget(
+                                  emoji: state.$2,
+                                  cellSize: cellSize,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                     ],
                   ),
                 ),

@@ -5,34 +5,34 @@ import 'package:link_game/services/game_state.dart';
 
 void main() {
   group('DifficultyConfig', () {
-    test('easy is 7 cols × 4 rows', () {
-      expect(DifficultyConfig.easy.cols, 7);
-      expect(DifficultyConfig.easy.rows, 4);
+    test('easy is 4 cols × 7 rows (竖屏优先)', () {
+      expect(DifficultyConfig.easy.cols, 4);
+      expect(DifficultyConfig.easy.rows, 7);
       expect(DifficultyConfig.easy.name, '简单');
     });
 
-    test('normal is 9 cols × 6 rows', () {
-      expect(DifficultyConfig.normal.cols, 9);
-      expect(DifficultyConfig.normal.rows, 6);
+    test('normal is 6 cols × 9 rows', () {
+      expect(DifficultyConfig.normal.cols, 6);
+      expect(DifficultyConfig.normal.rows, 9);
       expect(DifficultyConfig.normal.name, '普通');
     });
 
-    test('hard is 10 cols × 8 rows', () {
-      expect(DifficultyConfig.hard.cols, 10);
-      expect(DifficultyConfig.hard.rows, 8);
+    test('hard is 8 cols × 10 rows', () {
+      expect(DifficultyConfig.hard.cols, 8);
+      expect(DifficultyConfig.hard.rows, 10);
       expect(DifficultyConfig.hard.name, '困难');
     });
 
     test('byName returns correct config', () {
-      expect(DifficultyConfig.byName('简单').cols, 7);
-      expect(DifficultyConfig.byName('普通').cols, 9);
-      expect(DifficultyConfig.byName('困难').cols, 10);
+      expect(DifficultyConfig.byName('简单').cols, 4);
+      expect(DifficultyConfig.byName('普通').cols, 6);
+      expect(DifficultyConfig.byName('困难').cols, 8);
     });
 
     test('byName defaults to normal for unknown name', () {
       final config = DifficultyConfig.byName('unknown');
-      expect(config.cols, 9);
-      expect(config.rows, 6);
+      expect(config.cols, 6);
+      expect(config.rows, 9);
     });
   });
 
@@ -41,24 +41,24 @@ void main() {
       final state = GameState();
       state.initializeGrid('简单', EmojiTheme.fruits);
 
-      expect(state.grid.length, 4); // rows
-      expect(state.grid[0].length, 7); // cols
+      expect(state.grid.length, 7); // rows
+      expect(state.grid[0].length, 4); // cols
     });
 
     test('initializes correct grid size for normal difficulty', () {
       final state = GameState();
       state.initializeGrid('普通', EmojiTheme.fruits);
 
-      expect(state.grid.length, 6);
-      expect(state.grid[0].length, 9);
+      expect(state.grid.length, 9);
+      expect(state.grid[0].length, 6);
     });
 
     test('initializes correct grid size for hard difficulty', () {
       final state = GameState();
       state.initializeGrid('困难', EmojiTheme.fruits);
 
-      expect(state.grid.length, 8);
-      expect(state.grid[0].length, 10);
+      expect(state.grid.length, 10);
+      expect(state.grid[0].length, 8);
     });
 
     test('all cells are non-null after initialization', () {
@@ -77,15 +77,15 @@ void main() {
 
       state.initializeGrid('简单', EmojiTheme.fruits);
       int count = state.grid.expand((r) => r).where((c) => c != null).length;
-      expect(count, 7 * 4);
+      expect(count, 4 * 7);
 
       state.initializeGrid('普通', EmojiTheme.fruits);
       count = state.grid.expand((r) => r).where((c) => c != null).length;
-      expect(count, 9 * 6);
+      expect(count, 6 * 9);
 
       state.initializeGrid('困难', EmojiTheme.fruits);
       count = state.grid.expand((r) => r).where((c) => c != null).length;
-      expect(count, 10 * 8);
+      expect(count, 8 * 10);
     });
 
     test('even pair count for each emoji (easy)', () {
@@ -182,42 +182,14 @@ void main() {
       final state = GameState();
       state.initializeGrid('简单', EmojiTheme.fruits);
 
-      // Find two adjacent cells with same emoji
-      Cell? start;
-      Cell? end;
-      for (int r = 0; r < state.grid.length; r++) {
-        for (int c = 0; c < state.grid[r].length; c++) {
-          final cell = state.grid[r][c]!;
-          // Check right neighbor
-          if (c + 1 < state.grid[r].length) {
-            final right = state.grid[r][c + 1]!;
-            if (cell.emoji == right.emoji &&
-                !cell.isEliminated &&
-                !right.isEliminated) {
-              start = cell;
-              end = right;
-              break;
-            }
-          }
-          // Check bottom neighbor
-          if (r + 1 < state.grid.length) {
-            final bottom = state.grid[r + 1][c]!;
-            if (cell.emoji == bottom.emoji &&
-                !cell.isEliminated &&
-                !bottom.isEliminated) {
-              start = cell;
-              end = bottom;
-              break;
-            }
-          }
-        }
-        if (start != null) break;
-      }
+      // 人为构造一对相邻同 emoji 格子
+      // （随机布局不保证存在相邻同类对，扫描式查找会概率性失败）
+      final start = state.grid[0][0]!;
+      final end =
+          state.grid[0][1]!.copyWith(emoji: start.emoji, ttsLabel: start.ttsLabel);
+      state.grid[0][1] = end;
 
-      expect(start, isNotNull);
-      expect(end, isNotNull);
-
-      final result = state.tryMatch(start!, end!);
+      final result = state.tryMatch(start, end);
 
       expect(result, true);
       expect(state.score, 10);
@@ -301,25 +273,13 @@ void main() {
       final state = GameState();
       state.initializeGrid('简单', EmojiTheme.fruits);
 
-      Cell? start;
-      Cell? end;
-      for (int r = 0; r < state.grid.length; r++) {
-        for (int c = 0; c < state.grid[r].length - 1; c++) {
-          final cell = state.grid[r][c]!;
-          final right = state.grid[r][c + 1]!;
-          if (cell.emoji == right.emoji) {
-            start = cell;
-            end = right;
-            break;
-          }
-        }
-        if (start != null) break;
-      }
+      // 人为构造一对相邻同 emoji 格子（同上，避免概率性失败）
+      final start = state.grid[0][0]!;
+      final end =
+          state.grid[0][1]!.copyWith(emoji: start.emoji, ttsLabel: start.ttsLabel);
+      state.grid[0][1] = end;
 
-      expect(start, isNotNull);
-      expect(end, isNotNull);
-
-      state.tryMatch(start!, end!);
+      state.tryMatch(start, end);
 
       expect(state.currentPath, isNotNull);
       expect(state.currentPath!.length, greaterThanOrEqualTo(2));
@@ -329,25 +289,14 @@ void main() {
       final state = GameState();
       state.initializeGrid('简单', EmojiTheme.fruits);
 
-      // Find two adjacent cells with same emoji (guaranteed straight-line path)
-      Cell? cell1;
-      Cell? match;
-      for (int r = 0; r < state.grid.length && cell1 == null; r++) {
-        for (int c = 0; c < state.grid[r].length - 1 && cell1 == null; c++) {
-          final cell = state.grid[r][c]!;
-          final right = state.grid[r][c + 1]!;
-          if (cell.emoji == right.emoji) {
-            cell1 = cell;
-            match = right;
-          }
-        }
-      }
-
-      expect(cell1, isNotNull);
-      expect(match, isNotNull);
+      // 人为构造一对相邻同 emoji 格子（同上，避免概率性失败）
+      final cell1 = state.grid[0][0]!;
+      final match = state.grid[0][1]!
+          .copyWith(emoji: cell1.emoji, ttsLabel: cell1.ttsLabel);
+      state.grid[0][1] = match;
 
       state.selectedCell = cell1;
-      state.tryMatch(cell1!, match!);
+      state.tryMatch(cell1, match);
 
       expect(state.selectedCell, isNull);
     });
@@ -694,7 +643,7 @@ void main() {
       expect(state.selectedCell, isNull);
     });
 
-    test('selecting different cells with no match keeps first cell selected', () {
+    test('selecting different cells with no match clears selection', () {
       final state = GameState();
       state.initializeGrid('简单', EmojiTheme.fruits);
 
@@ -716,11 +665,8 @@ void main() {
       state.selectCell(cell1.row, cell1.col);
       state.selectCell(differentCell!.row, differentCell.col);
 
-      // Match failed (different emojis), tryMatch returns false
-      // In tryMatch, selectedCell is only cleared on success
-      // So selectedCell remains as the first cell
-      expect(state.selectedCell, isNotNull);
-      expect(state.selectedCell!.id, cell1.id);
+      // 配对失败清空选中（用户决策：点击模式失败即清空，滑动模式另有容错）
+      expect(state.selectedCell, isNull);
       expect(state.score, 0); // No score change on failed match
     });
   });
@@ -852,7 +798,7 @@ void main() {
       state.initializeGrid('简单', EmojiTheme.fruits);
       expect(state.isPlaying, true);
       expect(state.score, 0);
-      expect(state.grid.length, 4);
+      expect(state.grid.length, 7); // 简单：7 行 × 4 列
 
       final hint = state.findHint();
       expect(hint, isNotNull);

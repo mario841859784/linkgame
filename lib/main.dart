@@ -1,11 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'services/content_service.dart';
 import 'services/game_state.dart';
 import 'services/settings_service.dart';
 import 'screens/main_menu_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 先加载热更内容缓存，设置服务才能取到热更后的默认语速
+  await ContentService.instance.loadCached();
 
   // 预加载设置
   final settings = SettingsService();
@@ -20,6 +26,9 @@ void main() async {
       child: const LinkGameApp(),
     ),
   );
+
+  // 启动后静默检查内容热更（多源回退，失败无感知）
+  unawaited(ContentService.instance.checkForUpdates());
 }
 
 class LinkGameApp extends StatelessWidget {

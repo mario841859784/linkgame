@@ -206,7 +206,7 @@ void main() {
         ttsLabel: '苹果',
       );
 
-      expect(cell == 'not a cell', false);
+      expect(cell == const Object(), false);
     });
   });
 

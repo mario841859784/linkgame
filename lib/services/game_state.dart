@@ -226,6 +226,7 @@ class GameState extends ChangeNotifier {
     } else if (selectedCell != null) {
       final matched = tryMatch(selectedCell!, cell);
       if (!matched) {
+        // 配对失败清空选中（用户决策：滑动模式有容错，点击模式保持简单状态）
         selectedCell = null;
         notifyListeners();
       }
