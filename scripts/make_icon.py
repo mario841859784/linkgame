@@ -50,8 +50,8 @@ def draw_composition(scale=1.0, bg=NAVY):
 
     # Z 字连线：恰好两个转折点 —— 连连看的消除规则本体
     a_pt = pt(600, 700)
-    c1 = pt(1080, 700)
-    c2 = pt(1080, 1348)
+    c1 = pt(1024, 700)
+    c2 = pt(1024, 1348)
     b_pt = pt(1448, 1348)
     draw.line([a_pt, c1, c2, b_pt], fill=GOLD, width=int(118 * s), joint='curve')
     for end in (a_pt, b_pt):
@@ -66,24 +66,54 @@ def draw_composition(scale=1.0, bg=NAVY):
     rounded_tile(draw, tile_a, tile_size, radius, CREAM)
     rounded_tile(draw, tile_b, tile_size, radius, CREAM)
 
-    # 方块图案：🌸（Apple Color Emoji 直接渲染；失败回退手绘五瓣花）
+    # 方块图案：🍋 —— Apple Color Emoji 是位图字体，只支持固定字号（≤160px），
+    # 先按支持的字号渲染再缩放到目标尺寸；全部失败则手绘柠檬兜底
     flower_size = int(400 * s)
-    try:
-        font = ImageFont.truetype(EMOJI_FONT, flower_size, index=0)
-        for center in (tile_a, tile_b):
-            draw.text(center, '\U0001F338', font=font, embedded_color=True, anchor='mm')
-    except Exception as e:
-        print('emoji 字体渲染失败，使用手绘花朵:', e)
-        petal, core = 118 * s, 78 * s
-        for center in (tile_a, tile_b):
-            for i in range(5):
-                ang = i * 2 * math.pi / 5 - math.pi / 2
-                px, py = center[0] + math.cos(ang) * petal, center[1] + math.sin(ang) * petal
-                pr = 96 * s
-                draw.ellipse((px - pr, py - pr, px + pr, py + pr), fill=(244, 143, 177, 255))
-            cr = 84 * s
-            draw.ellipse((center[0] - cr, center[1] - cr, center[0] + cr, center[1] + cr),
-                         fill=(255, 202, 40, 255))
+
+    def render_emoji(char):
+        for size in (160, 150, 128, 112, 96):
+            try:
+                f = ImageFont.truetype(EMOJI_FONT, size, index=0)
+            except Exception:
+                continue
+            canvas = size * 3
+            tmp = Image.new('RGBA', (canvas, canvas), (0, 0, 0, 0))
+            d2 = ImageDraw.Draw(tmp)
+            try:
+                d2.text((canvas / 2, canvas / 2), char, font=f,
+                        embedded_color=True, anchor='mm')
+            except Exception:
+                continue
+            bbox = tmp.getbbox()
+            if not bbox:
+                continue
+            return tmp.crop(bbox)
+        return None
+
+    emoji = render_emoji('\U0001F34B')  # 🍋
+    target = int(flower_size)
+    for center in (tile_a, tile_b):
+        if emoji is not None:
+            img.alpha_composite(emoji.resize((target, target), Image.LANCZOS),
+                                (int(center[0] - target / 2), int(center[1] - target / 2)))
+        else:
+            # 手绘柠檬兜底：黄色斜椭圆 + 端凸 + 绿叶
+            layer = Image.new('RGBA', (target * 2, target * 2), (0, 0, 0, 0))
+            ld = ImageDraw.Draw(layer)
+            w, h = target, int(target * 0.62)
+            ld.ellipse((target - w / 2, target - h / 2, target + w / 2, target + h / 2),
+                       fill=(255, 214, 64, 255), outline=(214, 158, 22, 255), width=int(target * 0.04))
+            ld.ellipse((target + w * 0.30, target - h * 0.14,
+                        target + w * 0.30 + target * 0.12, target + h * 0.14),
+                       fill=(255, 214, 64, 255))
+            ld.ellipse((target - w * 0.12, target - h * 0.62,
+                        target + w * 0.22, target - h * 0.30),
+                       fill=(111, 168, 62, 255))
+            layer = layer.rotate(28, resample=Image.BICUBIC, center=(target, target))
+            img.alpha_composite(layer, (int(center[0] - target), int(center[1] - target)))
+    return img
+
+
     return img
 
 
