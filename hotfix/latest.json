@@ -1,17 +1,17 @@
 {
-  "versionName": "1.4.4",
-  "versionCode": 18,
-  "apkAsset": "linkgame-1.4.4+18.apk",
-  "tag": "v1.4.4",
+  "versionName": "1.4.5",
+  "versionCode": 19,
+  "apkAsset": "linkgame-1.4.5+19.apk",
+  "tag": "v1.4.5",
   "patches": [
     {
-      "fromCode": 17,
-      "fromSha256": "0fb09f2e3f8f40dfda92f62292b12805b6c1a69cca3bb938c3e2f33085e5b3d5",
-      "asset": "linkgame-1.4.4+18-from-1.4.3+17.patch",
-      "size": 55012,
-      "sha256": "bee6bc482d54589ba2a895c31416e4159ba1e759b3a92dae3e6a27ebe49f3a33",
-      "outSize": 18157781,
-      "outSha256": "35a0ca32161df868fd65250683ae206cddd940657497465336204e64db960618"
+      "fromCode": 18,
+      "fromSha256": "35a0ca32161df868fd65250683ae206cddd940657497465336204e64db960618",
+      "asset": "linkgame-1.4.5+19-from-1.4.4+18.patch",
+      "size": 67073,
+      "sha256": "e85ad62c773660faeab3658d7dedfb12e121276f12928fcf7772b642ff1a1a81",
+      "outSize": 18162165,
+      "outSha256": "83dce22fc03f020c95d187cd5368f8cffb95a402211345f450728a14f035fdc8"
     }
   ]
 }
