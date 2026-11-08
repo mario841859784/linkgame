@@ -11,6 +11,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../utils/bspatch.dart';
+import '../utils/download_speed_monitor.dart';
 
 /// 增量更新补丁描述（bsdiff 差分包）
 class PatchInfo {
@@ -113,6 +114,9 @@ class UpdateCheckOutcome {
 /// 2. tag `hotfix` release 上的 latest.json（与内容热更同一镜像通道，
 ///    国内网络可达；由 scripts/release.sh 随每次发版更新）
 ///
+/// 下载策略（全量 APK 与增量补丁共用）：镜像优先、直连垫底；下载中监测
+/// 速率，停滞即断开换下一个源并断点续传（详见 _downloadMirrors 注释）。
+///
 /// APK 资产名需形如 `linkgame-1.1.1+3.apk`，以 +versionCode 判断是否升级。
 /// 所有失败静默降级，不打扰老年用户。
 class UpdateService {
@@ -125,14 +129,18 @@ class UpdateService {
   static const String _apiLatestUrl =
       'https://api.github.com/repos/$_repo/releases/latest';
 
-  /// APK 下载镜像前缀（空字符串 = GitHub 直连，按顺序回退）
-  /// 注意：这些公共镜像存活率会波动，失效时从此列表移除并补充新镜像即可
+  /// APK 下载源前缀（拼在 GitHub 资产 URL 前；空字符串 = GitHub 直连）
+  ///
+  /// 国内 IPv4 无代理网络下，GitHub 直连往往「能连上但被限速到几 KB/s」，
+  /// 而公共镜像通常快得多，故镜像优先、直连垫底（海外/代理网络走镜像也不慢）。
+  /// 停滞源会自动断开换下一个源并断点续传（见 _streamIdleTimeout），镜像
+  /// 存活率波动时增删此列表即可。
   static const List<String> _downloadMirrors = [
-    '',
     'https://ghfast.top/',
     'https://ghproxy.net/',
     'https://gh-proxy.com/',
     'https://github.moeyy.xyz/',
+    '',
   ];
 
   /// latest.json 的检查源（jsDelivr 仓库文件，国内可达；cdn 主域名常被墙用备用端点）
@@ -145,9 +153,42 @@ class UpdateService {
   static const Duration _mirrorTimeout = Duration(seconds: 5);
   static const int _minApkBytes = 1 * 1024 * 1024; // 1MB 完整性下限
 
+  /// 慢速判定：观测窗口内平均速率低于阈值视为停滞，断开换下一个源
+  static const Duration _stallWindow = Duration(seconds: 8);
+  static const int _stallMinBytesPerSecond = 32 * 1024;
+
+  /// 流内无数据超时：连接冻结（头到了但数据完全不来）时兜底换源，
+  /// 与慢速判定互补（后者只覆盖「还在慢慢来」的情况）
+  static const Duration _streamIdleTimeout = Duration(seconds: 20);
+
+  /// 单源请求超时（拿到响应头的期限；之后的慢速/冻结由流内监测接管）
+  static const Duration _requestTimeout = Duration(minutes: 3);
+
   /// 测试钩子：false 时不发起任何网络检查（widget 测试环境用，
   /// 避免真实网络请求在测试结束后留下 pending timer）
   static bool networkChecksEnabled = true;
+
+  /// 测试钩子：替换网络客户端来源（默认每次新建）；客户端用毕由服务关闭
+  @visibleForTesting
+  static http.Client Function()? clientFactory;
+
+  /// 测试钩子：覆盖当前时间（慢速监视采样用）
+  @visibleForTesting
+  static DateTime Function()? clockOverride;
+
+  /// 测试钩子：覆盖下载落盘目录（默认 getTemporaryDirectory()）
+  @visibleForTesting
+  static Future<Directory> Function()? tempDirectoryResolver;
+
+  http.Client _newClient() => clientFactory?.call() ?? http.Client();
+
+  DateTime _now() => clockOverride?.call() ?? DateTime.now();
+
+  Future<Directory> _downloadDir() async {
+    final resolver = tempDirectoryResolver;
+    if (resolver != null) return resolver();
+    return getTemporaryDirectory();
+  }
 
   PackageInfo? _packageInfo;
   UpdateCheckOutcome? _cachedOutcome;
@@ -238,7 +279,7 @@ class UpdateService {
   }
 
   /// 多源拉取 latest.json
-  /// 顺序：release 资产镜像（即时新鲜）优先，jsDelivr（可达性最好但有缓存延迟）兜底
+  /// 顺序：release 资产镜像（即时新鲜，直连垫底）→ jsDelivr（可达性最好但有缓存延迟）兜底
   Future<Map<String, dynamic>?> _fetchLatestJsonViaMirrors() async {
     final urls = <String>[
       for (final mirror in _downloadMirrors)
@@ -352,49 +393,21 @@ class UpdateService {
       throw StateError('已安装包哈希不匹配（$oldHash）');
     }
 
-    // 下载补丁（多源回退），进度映射到 0~0.9
-    final dir = await getTemporaryDirectory();
+    // 下载补丁（多源回退 + 断点续传），进度映射到 0~0.9
+    final dir = await _downloadDir();
     final patchFile = File('${dir.path}/${patch.asset}');
-    if (await patchFile.exists()) await patchFile.delete();
 
-    final baseUrl =
-        release.apkDownloadUrl.substring(0, release.apkDownloadUrl.lastIndexOf('/') + 1);
-    Object? lastError;
-    var downloaded = false;
-    for (final mirror in _downloadMirrors) {
-      try {
-        final resp = await http.Client()
-            .send(http.Request('GET', Uri.parse('$mirror$baseUrl${patch.asset}')))
-            .timeout(const Duration(minutes: 3));
-        if (resp.statusCode != 200) {
-          lastError = 'HTTP ${resp.statusCode}';
-          continue;
-        }
-        final total = resp.contentLength ?? patch.size;
-        int received = 0;
-        final sink = patchFile.openWrite();
-        try {
-          await for (final chunk in resp.stream) {
-            received += chunk.length;
-            sink.add(chunk);
-            if (total > 0 && onProgress != null) {
-              onProgress(((received / total) * 0.9).clamp(0.0, 0.9));
-            }
-          }
-          await sink.flush();
-          await sink.close();
-        } catch (_) {
-          await sink.close();
-          rethrow;
-        }
-        downloaded = true;
-        break;
-      } catch (e) {
-        lastError = e;
-        if (await patchFile.exists()) await patchFile.delete();
-      }
-    }
-    if (!downloaded) throw StateError('补丁所有下载源均失败: $lastError');
+    final baseUrl = release.apkDownloadUrl
+        .substring(0, release.apkDownloadUrl.lastIndexOf('/') + 1);
+    await _downloadFromMirrors(
+      url: '$baseUrl${patch.asset}',
+      file: patchFile,
+      totalHint: patch.size,
+      validateSize: (length) => length == patch.size,
+      onProgress: onProgress == null
+          ? null
+          : (fraction) => onProgress((fraction * 0.9).clamp(0.0, 0.9)),
+    );
 
     // 补丁完整性
     if (await patchFile.length() != patch.size) {
@@ -433,53 +446,157 @@ class UpdateService {
     RemoteRelease release, {
     void Function(double progress)? onProgress,
   }) async {
-    final dir = await getTemporaryDirectory();
+    final dir = await _downloadDir();
     final file = File(
         '${dir.path}/linkgame-${release.versionName}+${release.versionCode}.apk');
-    if (await file.exists()) await file.delete();
+    await _downloadFromMirrors(
+      url: release.apkDownloadUrl,
+      file: file,
+      totalHint: null,
+      validateSize: (length) => length >= _minApkBytes,
+      onProgress: onProgress,
+    );
+    return file.path;
+  }
 
+  /// 多源流式下载：镜像优先、直连垫底；任一源停滞/报错即换下一个源，
+  /// 已落盘的前缀通过 HTTP Range 断点续传（源不支持时从头重下）。
+  ///
+  /// [url] 完整资源 URL；[totalHint] 已知总字节数（未知传 null，进度降级）；
+  /// [validateSize] 单源完成后按落盘字节数判定完整性，不完整视同失败换源。
+  /// [onProgress] 收到 0.0~1.0 的整体进度。全部源失败抛 StateError。
+  ///
+  /// 失败/停滞时保留部分文件：同版本重试可从断点继续，不必推倒重来。
+  Future<void> _downloadFromMirrors({
+    required String url,
+    required File file,
+    required int? totalHint,
+    required bool Function(int fileLength) validateSize,
+    void Function(double fraction)? onProgress,
+  }) async {
     Object? lastError;
-    for (final mirror in _downloadMirrors) {
+    for (var i = 0; i < _downloadMirrors.length; i++) {
+      // 最后一个源（直连）没有可切换的退路：不再因停滞中断，慢也拉完
+      final isLastSource = i == _downloadMirrors.length - 1;
+
+      var resumeFrom = await file.exists() ? await file.length() : 0;
+      if (totalHint != null && resumeFrom >= totalHint) {
+        // 残留文件已达预期大小（完整性校验失败过的脏数据）：丢弃重来
+        await file.delete();
+        resumeFrom = 0;
+      }
       try {
-        final request = http.Request(
-            'GET', Uri.parse('$mirror${release.apkDownloadUrl}'));
-        final resp = await http.Client()
-            .send(request)
-            .timeout(const Duration(minutes: 5));
-        if (resp.statusCode != 200) {
-          lastError = 'HTTP ${resp.statusCode}';
-          continue;
-        }
-
-        final total = resp.contentLength ?? 0;
-        int received = 0;
-        final sink = file.openWrite();
-        try {
-          await for (final chunk in resp.stream) {
-            received += chunk.length;
-            sink.add(chunk);
-            if (total > 0 && onProgress != null) {
-              onProgress((received / total).clamp(0.0, 1.0));
-            }
-          }
-          await sink.flush();
-          await sink.close();
-        } catch (_) {
-          await sink.close();
-          rethrow;
-        }
-
-        if (received < _minApkBytes) {
-          lastError = '下载不完整（$received 字节）';
-          continue;
-        }
-        return file.path;
+        await _downloadOnce(
+          uri: Uri.parse('${_downloadMirrors[i]}$url'),
+          file: file,
+          resumeFrom: resumeFrom,
+          totalHint: totalHint,
+          abortOnStall: !isLastSource,
+          onProgress: onProgress,
+        );
+        if (validateSize(await file.length())) return;
+        lastError = '下载不完整（${await file.length()} 字节）';
       } catch (e) {
         lastError = e;
-        if (await file.exists()) await file.delete();
       }
     }
     throw StateError('所有下载源均失败: $lastError');
+  }
+
+  /// 单源一次下载尝试（带断点续传 + 慢速停滞中断）
+  ///
+  /// 从 [resumeFrom] 偏移续传；服务器不支持 Range（返回 200）时丢弃旧前缀
+  /// 从头写。抛出异常表示本次尝试失败，已落盘前缀保留供下一个源续传。
+  Future<void> _downloadOnce({
+    required Uri uri,
+    required File file,
+    required int resumeFrom,
+    required int? totalHint,
+    required bool abortOnStall,
+    void Function(double fraction)? onProgress,
+  }) async {
+    final client = _newClient();
+    try {
+      var offset = resumeFrom;
+      http.StreamedResponse resp;
+      while (true) {
+        final request = http.Request('GET', uri);
+        if (offset > 0) {
+          request.headers['Range'] = 'bytes=$offset-';
+        }
+        final sent = await client.send(request).timeout(_requestTimeout);
+        if (sent.statusCode == 416 && offset > 0) {
+          // 残留前缀比远端还大（损坏/错版）：丢弃后从头下
+          if (await file.exists()) await file.delete();
+          offset = 0;
+          continue;
+        }
+        resp = sent;
+        break;
+      }
+
+      var base = offset;
+      int? total = totalHint;
+      if (resp.statusCode == 206) {
+        final start = _contentRangeStart(resp.headers['content-range']);
+        if (start != base) {
+          // 服务器给的续传起点对不上：宁可换源也不写坏文件
+          throw HttpException('Content-Range 起始偏移与断点不符', uri: uri);
+        }
+        final len = resp.contentLength;
+        if (len != null) total = base + len;
+      } else if (resp.statusCode == 200) {
+        // 未接受 Range（或不带 Range）：从头写
+        base = 0;
+        total = resp.contentLength ?? totalHint;
+        if (await file.exists()) await file.delete();
+      } else {
+        throw HttpException('HTTP ${resp.statusCode}', uri: uri);
+      }
+
+      final monitor = DownloadSpeedMonitor(
+        window: _stallWindow,
+        minBytesPerSecond: _stallMinBytesPerSecond,
+        now: _now,
+      );
+      final sink =
+          file.openWrite(mode: base > 0 ? FileMode.append : FileMode.write);
+      var closed = false;
+      try {
+        await for (final chunk in resp.stream.timeout(_streamIdleTimeout)) {
+          base += chunk.length;
+          monitor.sample(base);
+          if (abortOnStall && monitor.isStalled) {
+            throw const _StalledDownloadException();
+          }
+          sink.add(chunk);
+          if (total != null && total > 0 && onProgress != null) {
+            onProgress((base / total).clamp(0.0, 1.0));
+          }
+        }
+        await sink.flush();
+        closed = true;
+        await sink.close();
+      } catch (e) {
+        // 尽量把已收到的前缀落盘，供下一个源断点续传
+        if (!closed) {
+          try {
+            await sink.flush();
+          } catch (_) {}
+          await sink.close();
+        }
+        rethrow;
+      }
+    } finally {
+      client.close();
+    }
+  }
+
+  /// 从 Content-Range（如 "bytes 500-999/1234"）解析起始偏移；格式异常返回 null
+  static int? _contentRangeStart(String? header) {
+    if (header == null) return null;
+    final m = RegExp(r'^bytes\s+(\d+)-').firstMatch(header.trim());
+    return m != null ? int.tryParse(m.group(1)!) : null;
   }
 
   /// 唤起系统安装器；返回是否成功发起
@@ -496,4 +613,12 @@ class UpdateService {
       return false;
     }
   }
+}
+
+/// 下载速率长期低于阈值（判定停滞），应切换下一个下载源
+class _StalledDownloadException implements Exception {
+  const _StalledDownloadException();
+
+  @override
+  String toString() => '下载停滞（速率过低）';
 }
