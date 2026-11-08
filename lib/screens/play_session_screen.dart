@@ -815,12 +815,12 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
         ),
         title: Consumer<GameState>(
           builder: (context, gs, _) {
-            // 得分变化动画
+            // 得分变化动画（藏蓝顶栏上必须用白字，得分跳动用琥珀色强调）
             final scoreChanged = _prevScore != _displayScore;
             return AnimatedDefaultTextStyle(
               duration: const Duration(milliseconds: 200),
               style: ts.headlineMedium!.copyWith(
-                color: scoreChanged ? cs.tertiary : cs.onSurface,
+                color: scoreChanged ? Palette.amber : Colors.white,
                 fontSize: scoreChanged ? 32 : 28,
               ),
               child: Text('得分: $_displayScore'),
@@ -854,7 +854,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
                   Text(
                     '剩余: ${_countRemaining(gs)}',
                     style: ts.labelMedium?.copyWith(
-                      color: cs.onSurfaceVariant,
+                      color: Colors.white,
                       fontSize: 20,
                     ),
                   ),
