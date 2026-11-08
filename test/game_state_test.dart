@@ -700,6 +700,39 @@ void main() {
     });
   });
 
+  group('GameState.streak', () {
+    test('成功消除累加连击，失败清零', () {
+      final state = GameState();
+      state.initializeGrid('简单', EmojiTheme.fruits);
+      _seedSolvablePairs(state, 2);
+
+      expect(state.streak, 0);
+      expect(state.tryMatch(state.grid[0][0]!, state.grid[0][1]!), true);
+      expect(state.streak, 1);
+
+      // 失败尝试（消错对）清零连击
+      final c = state.grid[1][0]!;
+      final other = state.grid[2][0]!; // 已被消除的格子，必失败
+      expect(state.tryMatch(c, other), false);
+      expect(state.streak, 0);
+
+      // 再次成功重新累计
+      expect(state.tryMatch(state.grid[1][0]!, state.grid[1][1]!), true);
+      expect(state.streak, 1);
+    });
+
+    test('重开局清零连击', () {
+      final state = GameState();
+      state.initializeGrid('简单', EmojiTheme.fruits);
+      _seedSolvablePairs(state, 2);
+      state.tryMatch(state.grid[0][0]!, state.grid[0][1]!);
+      expect(state.streak, 1);
+
+      state.initializeGrid('简单', EmojiTheme.fruits);
+      expect(state.streak, 0);
+    });
+  });
+
   group('GameState.tick', () {
     test('increments timeElapsed when playing', () {
       final state = GameState();

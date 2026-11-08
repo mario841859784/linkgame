@@ -47,6 +47,9 @@ class GameState extends ChangeNotifier {
   bool isPlaying = false;
   bool _isVictory = false;
 
+  // 连击数：连续成功消除的次数，匹配失败即清零（鼓励向，不因暂停/洗牌清零）
+  int streak = 0;
+
   // 最近一次成功匹配的路径（用于可视化）
   List<Offset>? currentPath;
 
@@ -71,6 +74,7 @@ class GameState extends ChangeNotifier {
     timeElapsed = 0;
     isPlaying = true;
     _isVictory = false;
+    streak = 0;
 
     final totalCells = config.cols * config.rows;
     final emojis = theme.emojis;
@@ -119,20 +123,25 @@ class GameState extends ChangeNotifier {
   }
 
   /// 尝试匹配两个格子
-  /// 成功消除 +10 分，返回 true；失败返回 false
+  /// 成功消除 +10 分并累加连击，返回 true；失败清零连击并返回 false
   bool tryMatch(Cell start, Cell end) {
     // 必须是相同 emoji 且未消除
     if (start.emoji != end.emoji ||
         start.isEliminated ||
         end.isEliminated) {
+      streak = 0;
       return false;
     }
 
     final path = PathFinder.findPath(start, end, grid);
-    if (path == null) return false;
+    if (path == null) {
+      streak = 0;
+      return false;
+    }
 
     // 保存路径用于可视化
     currentPath = path;
+    streak++;
 
     // 消除两个格子
     grid[start.row][start.col] =
@@ -247,6 +256,7 @@ class GameState extends ChangeNotifier {
     isPlaying = false;
     currentPath = null;
     _isVictory = false;
+    streak = 0;
     notifyListeners();
   }
 

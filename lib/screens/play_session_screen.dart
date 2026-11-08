@@ -1,6 +1,10 @@
 import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/cell.dart';
 import '../models/emoji_themes.dart';
@@ -12,6 +16,7 @@ import '../utils/app_lifecycle.dart';
 import '../utils/audio_service.dart';
 import '../utils/haptic_service.dart';
 import '../utils/tts_service.dart';
+import '../widgets/juice_painter.dart';
 import '../widgets/live_link_painter.dart';
 import '../widgets/magnifier_widget.dart';
 import 'victory_screen.dart';
@@ -73,6 +78,29 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
   // 胜利弹窗防重复
   bool _victoryShown = false;
 
+  // ---- 爽点层 ----
+  // 消除爆点粒子 + 跳分（Ticker 驱动物理，ValueNotifier 只重绘本层）
+  final List<JuiceParticle> _juiceParticles = [];
+  final List<ScoreFloat> _juiceFloats = [];
+  final ValueNotifier<JuiceFrame> _juice =
+      ValueNotifier(const JuiceFrame(particles: [], floats: []));
+  Ticker? _juiceTicker;
+  Duration? _juiceLast;
+
+  // 连击弹字：(连击数, 序号)；序号自增驱动弹字动画重启
+  final ValueNotifier<(int, int)?> _comboPop = ValueNotifier(null);
+  int _comboSeq = 0;
+
+  // 本局失误数（零失误通关判定）与总对数（里程碑判定）
+  int _mismatchCount = 0;
+  int _totalPairs = 0;
+
+  // 庆祝粒子配色（与胜利彩纸同款暖色）
+  static const _juiceColors = [
+    Color(0xFFFFD700), Color(0xFFFF6B35), Color(0xFFFF4757),
+    Color(0xFF2ED573), Color(0xFF1E90FF), Color(0xFFFFA502),
+  ];
+
   // 常量
   static const double _panThreshold = 30.0;
   static const int _dwellMs = 200;
@@ -100,6 +128,8 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
         _displayScore = gs.score;
         _prevScore = gs.score;
         _victoryShown = false;
+        _mismatchCount = 0;
+        _totalPairs = gs.grid.length * gs.grid[0].length ~/ 2;
         _startClockTimer();
       }
     });
@@ -139,6 +169,9 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
     _lifecycleObserver.dispose();
     _magnifier.dispose();
     _liveLink.dispose();
+    _juiceTicker?.dispose();
+    _juice.dispose();
+    _comboPop.dispose();
     super.dispose();
   }
 
@@ -335,7 +368,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
     _currentHoveredIndex = currentIndex;
   }
 
-  void _onPanEnd(double tileSize, int rows, int cols) {
+  void _onPanEnd(double tileSize, int rows, int cols, Offset gridOffset) {
     _dwellTimer?.cancel();
     _dwellTimer = null;
     _magnifier.value = null;
@@ -349,7 +382,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
         _startCell != null &&
         endCell != null &&
         _startCell!.id != endCell.id) {
-      _tryMatchCells(_startCell!, endCell);
+      _tryMatchCells(_startCell!, endCell, tileSize, gridOffset);
     } else if (_startCell != null) {
       final gs = context.read<GameState>();
       final settings = context.read<SettingsService>();
@@ -358,13 +391,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
       // 处理点击匹配结果
       if (result == true) {
         // 匹配成功
-        if (settings.isVibrationEnabled) {
-          HapticService.instance.vibrateSuccess();
-        }
-        AudioService.instance.play('eliminate');
-        if (settings.isTtsEnabled) {
-          TtsService.instance.speak(TtsService.randomPraise());
-        }
+        _celebrateElimination(_startCell!, endCell!, tileSize, gridOffset);
 
         // 显示路径
         final path = gs.currentPath;
@@ -392,6 +419,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
         }
       } else if (result == false) {
         // 匹配失败
+        _mismatchCount++;
         if (settings.isVibrationEnabled) {
           HapticService.instance.vibrateFail();
         }
@@ -422,7 +450,12 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
     return null;
   }
 
-  void _tryMatchCells(Cell start, Cell end) {
+  void _tryMatchCells(
+    Cell start,
+    Cell end,
+    double tileSize,
+    Offset gridOffset,
+  ) {
     final gs = context.read<GameState>();
     final settings = context.read<SettingsService>();
     final matched = gs.tryMatch(start, end);
@@ -443,13 +476,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
         }
       });
 
-      if (settings.isVibrationEnabled) {
-        HapticService.instance.vibrateSuccess();
-      }
-      AudioService.instance.play('eliminate');
-      if (settings.isTtsEnabled) {
-        TtsService.instance.speak(TtsService.randomPraise());
-      }
+      _celebrateElimination(start, end, tileSize, gridOffset);
 
       // 显示路径
       final path = gs.currentPath;
@@ -476,6 +503,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
         _showVictory(gs.score);
       }
     } else {
+      _mismatchCount++;
       if (settings.isVibrationEnabled) {
         HapticService.instance.vibrateFail();
       }
@@ -483,11 +511,154 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
     }
   }
 
-  void _showVictory(int score) {
-    showDialog<bool>(
+  // ---- 消除庆祝（爽点漏斗）：震动/音效/粒子/跳分/连击弹字/里程碑播报 ----
+
+  void _celebrateElimination(
+    Cell a,
+    Cell b,
+    double tileSize,
+    Offset gridOffset,
+  ) {
+    final gs = context.read<GameState>();
+    final settings = context.read<SettingsService>();
+    if (settings.isVibrationEnabled) {
+      HapticService.instance.vibrateSuccess();
+    }
+    AudioService.instance.play('eliminate');
+    _spawnJuice(a, b, tileSize, gridOffset);
+
+    final combo = gs.streak;
+    if (combo >= 2) {
+      _comboSeq++;
+      _comboPop.value = (combo, _comboSeq);
+    }
+    if (settings.isTtsEnabled) {
+      final remainingPairs = _countRemaining(gs) ~/ 2;
+      TtsService.instance.speak(_eliminateLine(remainingPairs, combo));
+    }
+  }
+
+  /// 每消一对只说一句话，优先级：里程碑 > 连击 > 随机表扬
+  String _eliminateLine(int remainingPairs, int combo) {
+    if (remainingPairs == 1) return '最后一对，冲刺！';
+    if (remainingPairs == 5) return '还剩五对！';
+    if (_totalPairs > 0 && remainingPairs == _totalPairs ~/ 2) return '过半啦！';
+    if (combo >= 2) return _comboLine(combo);
+    return TtsService.randomPraise();
+  }
+
+  String _comboLine(int n) {
+    const cn = ['', '', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+    if (n < cn.length) return '${cn[n]}连消！';
+    return '$n 连消，太惊人了！';
+  }
+
+  void _spawnJuice(Cell a, Cell b, double tileSize, Offset gridOffset) {
+    final cs = Theme.of(context).colorScheme;
+    final rng = math.Random();
+    final centerA =
+        _cellCenter(a.row.toDouble(), a.col.toDouble(), tileSize, gridOffset);
+    final centerB =
+        _cellCenter(b.row.toDouble(), b.col.toDouble(), tileSize, gridOffset);
+    for (final center in [centerA, centerB]) {
+      for (int i = 0; i < 14; i++) {
+        final angle = rng.nextDouble() * math.pi * 2;
+        final speed = 130.0 + rng.nextDouble() * 260.0;
+        _juiceParticles.add(JuiceParticle(
+          pos: center,
+          vel: Offset(math.cos(angle) * speed, math.sin(angle) * speed - 190),
+          color: _juiceColors[rng.nextInt(_juiceColors.length)],
+          size: 4 + rng.nextDouble() * 4,
+          round: rng.nextBool(),
+          maxLife: 0.55 + rng.nextDouble() * 0.35,
+        ));
+      }
+    }
+    _juiceFloats.add(ScoreFloat(
+      origin: Offset((centerA.dx + centerB.dx) / 2,
+          (centerA.dy + centerB.dy) / 2 - tileSize / 3),
+      text: '+10',
+      color: cs.secondary,
+    ));
+    _startJuiceTicker();
+  }
+
+  void _startJuiceTicker() {
+    _juiceTicker ??= createTicker(_onJuiceTick);
+    if (!_juiceTicker!.isActive) {
+      _juiceLast = null;
+      _juiceTicker!.start();
+    }
+  }
+
+  void _onJuiceTick(Duration elapsed) {
+    final last = _juiceLast;
+    final dt = last == null ? 0.0 : (elapsed - last).inMicroseconds / 1e6;
+    _juiceLast = elapsed;
+    if (dt <= 0) return;
+
+    const gravity = 1500.0;
+    _juiceParticles.removeWhere((p) {
+      p.pos += p.vel * dt;
+      p.vel = Offset(p.vel.dx, p.vel.dy + gravity * dt);
+      p.angle += p.spin * dt;
+      p.life -= dt;
+      return p.life <= 0;
+    });
+    _juiceFloats.removeWhere((f) {
+      f.age += dt;
+      return f.age >= f.maxAge;
+    });
+    if (_juiceParticles.isEmpty && _juiceFloats.isEmpty) {
+      _juiceTicker!.stop();
+      _juiceLast = null;
+    }
+    _juice.value = JuiceFrame(
+      particles: List.of(_juiceParticles),
+      floats: List.of(_juiceFloats),
+    );
+  }
+
+  Future<void> _showVictory(int score) async {
+    final gs = context.read<GameState>();
+    final settings = context.read<SettingsService>();
+    final elapsed = gs.timeElapsed;
+    final zeroMiss = _mismatchCount == 0;
+
+    // 最快纪录（按难度持久化）
+    int? best;
+    bool newBest = false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'best_seconds_${gs.difficulty}';
+      final current = prefs.getInt(key);
+      if (elapsed > 0 && (current == null || elapsed < current)) {
+        newBest = current != null;
+        best = elapsed;
+        await prefs.setInt(key, elapsed);
+      } else {
+        best = current;
+      }
+    } catch (_) {}
+
+    if (settings.isTtsEnabled) {
+      final line = StringBuffer('恭喜通关！');
+      if (zeroMiss) line.write('零失误，');
+      if (newBest) line.write('刷新最快纪录！');
+      TtsService.instance.speak(line.toString());
+    }
+    if (!mounted) return;
+
+    await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => VictoryScreen(finalScore: score),
+      builder: (dialogContext) => VictoryScreen(
+        finalScore: score,
+        timeElapsed: elapsed,
+        zeroMiss: zeroMiss,
+        bestSeconds: best,
+        newBest: newBest,
+      ),
     ).then((playAgain) {
       if (!mounted) return;
       if (playAgain == true) {
@@ -497,6 +668,8 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
         gs.clearVictory();
         gs.initializeGrid(settings.difficulty, EmojiTheme.random());
         _victoryShown = false;
+        _mismatchCount = 0;
+        _totalPairs = gs.grid.length * gs.grid[0].length ~/ 2;
       } else {
         // 返回主页
         Navigator.of(context).popUntil((route) => route.isFirst);
@@ -653,6 +826,22 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
             );
           },
         ),
+        // 消除进度条：越接近通关越有盼头
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(5),
+          child: Consumer<GameState>(
+            builder: (context, gs, _) {
+              final total = gs.grid.isEmpty || gs.grid[0].isEmpty
+                  ? 0
+                  : gs.grid.length * gs.grid[0].length ~/ 2;
+              final remaining = _countRemaining(gs) ~/ 2;
+              return LinearProgressIndicator(
+                value: total == 0 ? null : (total - remaining) / total,
+                minHeight: 5,
+              );
+            },
+          ),
+        ),
         actions: [
           Consumer<GameState>(
             builder: (context, gs, _) => Padding(
@@ -708,7 +897,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
                       _onPanDown(details, tileSize, rows, cols, gridOffset),
                   onPanUpdate: (details) =>
                       _onPanUpdate(details, tileSize, rows, cols, gridOffset),
-                  onPanEnd: (_) => _onPanEnd(tileSize, rows, cols),
+                  onPanEnd: (_) => _onPanEnd(tileSize, rows, cols, gridOffset),
                   behavior: HitTestBehavior.translucent,
                   child: Stack(
                     key: _stackKey,
@@ -782,6 +971,76 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
                                   matchable: state.$2,
                                   validColor: cs.secondary,
                                   invalidColor: cs.error,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      // 爽点层：消除爆点粒子 + 跳分（Ticker 物理驱动）
+                      ValueListenableBuilder<JuiceFrame>(
+                        valueListenable: _juice,
+                        builder: (context, frame, _) {
+                          if (frame.particles.isEmpty && frame.floats.isEmpty) {
+                            return const SizedBox.shrink();
+                          }
+                          return Positioned.fill(
+                            child: RepaintBoundary(
+                              child: CustomPaint(painter: JuicePainter(frame: frame)),
+                            ),
+                          );
+                        },
+                      ),
+                      // 连击弹字：×2 起中央上方弹出，数字越大越醒目
+                      ValueListenableBuilder<(int, int)?>(
+                        valueListenable: _comboPop,
+                        builder: (context, state, _) {
+                          if (state == null) return const SizedBox.shrink();
+                          return Positioned(
+                            top: 12,
+                            left: 0,
+                            right: 0,
+                            child: IgnorePointer(
+                              child: Center(
+                                child: TweenAnimationBuilder<double>(
+                                  key: ValueKey(state.$2),
+                                  tween: Tween(begin: 0, end: 1),
+                                  duration: const Duration(milliseconds: 900),
+                                  curve: Curves.easeOutCubic,
+                                  builder: (context, t, child) {
+                                    final popIn =
+                                        Curves.easeOutBack
+                                            .transform((t * 4).clamp(0.0, 1.0));
+                                    final fadeOut =
+                                        t < 0.7 ? 1.0 : 1.0 - (t - 0.7) / 0.3;
+                                    return Opacity(
+                                      opacity: fadeOut.clamp(0.0, 1.0),
+                                      child: Transform.scale(
+                                        scale: popIn,
+                                        child: child,
+                                      ),
+                                    );
+                                  },
+                                  child: Text(
+                                    '连击 ×${state.$1}',
+                                    style: TextStyle(
+                                      fontSize:
+                                          30 + (state.$1.clamp(2, 8) - 2) * 2.0,
+                                      fontWeight: FontWeight.w900,
+                                      color: Colors.white,
+                                      shadows: [
+                                        Shadow(
+                                          color: Colors.orange.shade700,
+                                          blurRadius: 18,
+                                        ),
+                                        Shadow(
+                                          color: Colors.black.withValues(alpha: 0.4),
+                                          blurRadius: 6,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),

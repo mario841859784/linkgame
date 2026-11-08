@@ -233,13 +233,31 @@ class _ScoreCounterState extends State<_ScoreCounter>
 /// 通关庆祝页面 — 适老化大字号、高对比度、增强庆典感
 class VictoryScreen extends StatelessWidget {
   final int finalScore;
+  final int timeElapsed;
+  final bool zeroMiss;
+  final int? bestSeconds;
+  final bool newBest;
 
-  const VictoryScreen({super.key, required this.finalScore});
+  const VictoryScreen({
+    super.key,
+    required this.finalScore,
+    this.timeElapsed = 0,
+    this.zeroMiss = false,
+    this.bestSeconds,
+    this.newBest = false,
+  });
+
+  static String _formatSeconds(int seconds) {
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return m > 0 ? '$m 分 ${s.toString().padLeft(2, '0')} 秒' : '$s 秒';
+  }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final ts = Theme.of(context).textTheme;
+    final best = bestSeconds; // 局部变量才能做空值提升
 
     return Dialog(
       backgroundColor: cs.surface,
@@ -332,7 +350,41 @@ class VictoryScreen extends StatelessWidget {
 
                   // 得分数字 — 翻牌动画
                   _ScoreCounter(targetScore: finalScore),
-                  const SizedBox(height: 40),
+                  const SizedBox(height: 16),
+
+                  // 用时 + 纪录信息
+                  Text(
+                    '用时 ${_formatSeconds(timeElapsed)}',
+                    style: ts.bodyLarge?.copyWith(color: cs.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (zeroMiss)
+                        _VictoryBadge(
+                          label: '零失误',
+                          icon: Icons.workspace_premium_rounded,
+                          color: cs.tertiary,
+                        ),
+                      if (zeroMiss && (newBest || best != null))
+                        const SizedBox(width: 10),
+                      if (newBest)
+                        _VictoryBadge(
+                          label: '新纪录！',
+                          icon: Icons.emoji_events_rounded,
+                          color: const Color(0xFFFFB300),
+                        )
+                      else if (best != null)
+                        Text(
+                          '最快纪录 ${_formatSeconds(best)}',
+                          style: ts.bodyMedium?.copyWith(
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 28),
 
                   // 再来一局按钮
                   SizedBox(
@@ -387,6 +439,46 @@ class VictoryScreen extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 通关页徽章（零失误 / 新纪录）
+class _VictoryBadge extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+
+  const _VictoryBadge({
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.6), width: 1.5),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 22, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
       ),
     );
   }
