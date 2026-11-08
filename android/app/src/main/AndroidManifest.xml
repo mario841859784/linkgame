@@ -4,7 +4,7 @@
     <!-- 应用内自更新：下载 APK 后唤起系统安装器 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <application
-        android:label="link_game"
+        android:label="连连看"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
