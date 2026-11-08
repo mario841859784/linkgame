@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../services/game_state.dart';
 import '../services/settings_service.dart';
 import '../services/update_service.dart';
+import '../style/palette.dart';
 import '../models/emoji_themes.dart';
 import 'play_session_screen.dart';
 import 'settings_screen.dart';
@@ -124,8 +125,8 @@ class MainMenuScreen extends StatelessWidget {
         style: FilledButton.styleFrom(
           minimumSize: const Size.fromHeight(72),
           padding: const EdgeInsets.symmetric(vertical: 8),
-          backgroundColor: const Color(0xFFFFB300), // 明亮琥珀金暖色
-          foregroundColor: Colors.white,
+          backgroundColor: Palette.amber, // 琥珀底必须配深墨字（白字对比不足）
+          foregroundColor: Palette.inkOnAmber,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
           ),

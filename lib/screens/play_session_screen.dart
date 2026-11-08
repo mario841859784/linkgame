@@ -16,6 +16,7 @@ import '../utils/app_lifecycle.dart';
 import '../utils/audio_service.dart';
 import '../utils/haptic_service.dart';
 import '../utils/tts_service.dart';
+import '../style/palette.dart';
 import '../widgets/juice_painter.dart';
 import '../widgets/live_link_painter.dart';
 import '../widgets/magnifier_widget.dart';
@@ -1027,16 +1028,16 @@ class _PlaySessionScreenState extends State<PlaySessionScreen>
                                       fontSize:
                                           30 + (state.$1.clamp(2, 8) - 2) * 2.0,
                                       fontWeight: FontWeight.w900,
-                                      color: Colors.white,
+                                      color: Palette.amberText,
                                       shadows: [
+                                        // 白色光晕衬托，保证浅色棋盘上的可读性
                                         Shadow(
-                                          color: Colors.orange.shade700,
-                                          blurRadius: 18,
+                                          color: Colors.white,
+                                          blurRadius: 10,
                                         ),
                                         Shadow(
-                                          color: Colors.black.withValues(alpha: 0.4),
-                                          blurRadius: 6,
-                                          offset: const Offset(0, 2),
+                                          color: Colors.white,
+                                          blurRadius: 4,
                                         ),
                                       ],
                                     ),

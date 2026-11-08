@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
+import '../style/palette.dart';
+
 /// 粒子彩纸 Widget — 通关庆祝动效（增强版）
 class ParticleWidget extends StatefulWidget {
   final bool active;
@@ -219,7 +221,7 @@ class _ScoreCounterState extends State<_ScoreCounter>
         return Text(
           '${_animation.value}',
           style: Theme.of(context).textTheme.displayMedium?.copyWith(
-                color: Theme.of(context).colorScheme.secondary,
+                color: Palette.amberText,
                 fontWeight: FontWeight.w900,
                 fontSize: 56,
               ),
@@ -373,7 +375,7 @@ class VictoryScreen extends StatelessWidget {
                         _VictoryBadge(
                           label: '新纪录！',
                           icon: Icons.emoji_events_rounded,
-                          color: const Color(0xFFFFB300),
+                          color: Palette.amberText,
                         )
                       else if (best != null)
                         Text(
