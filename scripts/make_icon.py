@@ -4,10 +4,12 @@
 设计：藏蓝底 + 两块米白圆角方块（各印一个红圆 = 同图案配对）+ 金色 S 连线。
 用法: python3 scripts/make_icon.py   （需 Pillow）
 """
+import math
 import os
-import xml.sax.saxutils as sx
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
+
+EMOJI_FONT = '/System/Library/Fonts/Apple Color Emoji.ttc'
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RES = os.path.join(ROOT, 'android', 'app', 'src', 'main', 'res')
@@ -46,32 +48,45 @@ def draw_composition(scale=1.0, bg=NAVY):
     tile_size = 600 * s
     radius = 140 * s
 
-    # 金色 S 连线（先画，端点被方块压住）
-    mid = pt(760, 1420)
-    curve = []
-    for i in range(33):
-        t = i / 32
-        # 二次贝塞尔: A -> mid -> B
-        x = (1 - t) ** 2 * tile_a[0] + 2 * (1 - t) * t * mid[0] + t ** 2 * tile_b[0]
-        y = (1 - t) ** 2 * tile_a[1] + 2 * (1 - t) * t * mid[1] + t ** 2 * tile_b[1]
-        curve.append((x, y))
-    draw.line(curve, fill=GOLD, width=int(118 * s), joint='curve')
-    for end in (curve[0], curve[-1]):
+    # Z 字连线：恰好两个转折点 —— 连连看的消除规则本体
+    a_pt = pt(600, 700)
+    c1 = pt(1080, 700)
+    c2 = pt(1080, 1348)
+    b_pt = pt(1448, 1348)
+    draw.line([a_pt, c1, c2, b_pt], fill=GOLD, width=int(118 * s), joint='curve')
+    for end in (a_pt, b_pt):
         r = 59 * s
         draw.ellipse((end[0] - r, end[1] - r, end[0] + r, end[1] + r), fill=GOLD)
 
     # 两块米白圆角方块
+    tile_a = pt(600, 700)
+    tile_b = pt(1448, 1348)
+    tile_size = 600 * s
+    radius = 140 * s
     rounded_tile(draw, tile_a, tile_size, radius, CREAM)
     rounded_tile(draw, tile_b, tile_size, radius, CREAM)
 
-    # 每块上一个红圆（同图案 = 配对）
-    dot_r = 150 * s
-    for center in (tile_a, tile_b):
-        draw.ellipse(
-            (center[0] - dot_r, center[1] - dot_r,
-             center[0] + dot_r, center[1] + dot_r),
-            fill=RED,
-        )
+    # 方块图案：🌸（Apple Color Emoji 直接渲染；失败回退手绘五瓣花）
+    flower_size = int(400 * s)
+    try:
+        font = ImageFont.truetype(EMOJI_FONT, flower_size, index=0)
+        for center in (tile_a, tile_b):
+            draw.text(center, '\U0001F338', font=font, embedded_color=True, anchor='mm')
+    except Exception as e:
+        print('emoji 字体渲染失败，使用手绘花朵:', e)
+        petal, core = 118 * s, 78 * s
+        for center in (tile_a, tile_b):
+            for i in range(5):
+                ang = i * 2 * math.pi / 5 - math.pi / 2
+                px, py = center[0] + math.cos(ang) * petal, center[1] + math.sin(ang) * petal
+                pr = 96 * s
+                draw.ellipse((px - pr, py - pr, px + pr, py + pr), fill=(244, 143, 177, 255))
+            cr = 84 * s
+            draw.ellipse((center[0] - cr, center[1] - cr, center[0] + cr, center[1] + cr),
+                         fill=(255, 202, 40, 255))
+    return img
+
+
     return img
 
 
