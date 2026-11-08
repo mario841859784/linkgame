@@ -10,7 +10,25 @@
       "asset": "linkgame-1.4.6+20-from-1.4.5+19.patch",
       "size": 709777,
       "sha256": "44fe4225968dc6dff9d5a509daefea17ac49e3b05767273fee7c743cce168b3e",
-      "outSize": 18175397,
+      "outSize": 18240929,
+      "outSha256": "dacd3d1b199c993af947f4424890469b7bb2307813a891350cfa6f3da2be0d0f"
+    },
+    {
+      "fromCode": 18,
+      "fromSha256": "35a0ca32161df868fd65250683ae206cddd940657497465336204e64db960618",
+      "asset": "linkgame-1.4.6+20-from-1.4.4+18.patch",
+      "size": 785845,
+      "sha256": "6442e6479cc6025803e475b2bfcb79c9bb445e511d58fd1335a34c1e7728b302",
+      "outSize": 18240929,
+      "outSha256": "dacd3d1b199c993af947f4424890469b7bb2307813a891350cfa6f3da2be0d0f"
+    },
+    {
+      "fromCode": 17,
+      "fromSha256": "0fb09f2e3f8f40dfda92f62292b12805b6c1a69cca3bb938c3e2f33085e5b3d5",
+      "asset": "linkgame-1.4.6+20-from-1.4.3+17.patch",
+      "size": 787608,
+      "sha256": "9c7f2dbf1cc86c4bf38ccace3b5f95d3f431ae39737cdcfd0edda3c74147d0d3",
+      "outSize": 18240929,
       "outSha256": "dacd3d1b199c993af947f4424890469b7bb2307813a891350cfa6f3da2be0d0f"
     }
   ]
